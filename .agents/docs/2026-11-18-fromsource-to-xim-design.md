@@ -314,3 +314,18 @@ xim-pkgindex，由上游 res-build 重建并发布到 xlings-res，xim 配方切
   构建也有，之前未注意）；已在导出时统一删除，该次 CI 产物因此不发布。
 - 验证时注意：本机 PATH 中有 Arm 官方工具链（`~/local/arm-none-eabi`），测试 shim 时必须用
   `env -i ... /bin/bash --noprofile --norc`，否则会误测到它。
+
+### 7.6 首次发布与可复现性核对（2026-11-19）
+
+- run 44453953062（`release=false`）与 run 44456719656（`release=true`）都构建自 c0b8058，两次产物逐字节相同：
+  x86_64 `b60eea24…`，aarch64 `9cd587d8…`，即 Release `arm-none-eabi-gcc-14.2.0` 上资产的 digest。
+- Actions 页面上 artifact 的 digest 每次都不同，原因是那是 `actions/upload-artifact` 打的 **zip** 的哈希：
+  zip 里记录了上传时的 mtime（04:09:32 与 04:36:40）。两个 zip 大小相同，解开后文件的 sha256 完全一致。
+  **比较可复现性要看 payload 自身的 sha256（日志里的 `[fromsource] <sha256>` 行或 `.sha256` sidecar），
+  不要看 artifact digest。**
+- 关于“gcc 构建产物不保证逐字节可复现”：只在条件不受控时成立，并非 GCC 的固有性质。本项目中的变化来源都已
+  消除（构建路径、宿主 `ar` 的时间戳、工具链与依赖版本）；本地 16 核与 CI 4 核的构建都可复现，说明并行度不影响结果。
+  前提是输入相同：同一架构、固定的 `/w`、同一 Debian 镜像、同一 xlings 版本、同样版本的 xim 依赖。xim 依赖若
+  发布了新 revision，产物就可能变化，届时需要按新版本 revision 重新发布。
+- xim 配方已填入上述 sha256；在全新 home 中直接从 GitHub Release 下载安装（不再预置缓存）通过：shim、可重定位
+  sysroot、cortex-m0 链接均正常；发布的 tarball 顶层不再含 `.xpkg*` / `.xlings*`。

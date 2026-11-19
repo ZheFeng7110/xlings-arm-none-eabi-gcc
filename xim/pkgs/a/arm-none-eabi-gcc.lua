@@ -73,13 +73,12 @@ package = {
                 build = { "xim:patchelf@0.18.0" },
             },
             ["latest"] = { ref = "14.2.0" },
-            -- PENDING PUBLICATION: the hashes are the build workflow's artifacts'
-            -- (the `.sha256` sidecars), filled in once the release
-            -- arm-none-eabi-gcc-14.2.0 is published.
+            -- The release arm-none-eabi-gcc-14.2.0 (build runs 44453953062 and
+            -- 44456719656 of c0b8058 made the same bytes).
             ["14.2.0"] = {
                 sha256 = {
-                    x86_64 = "PENDING-build-arm-none-eabi-gcc-14.2.0-linux-x86_64",
-                    aarch64 = "PENDING-build-arm-none-eabi-gcc-14.2.0-linux-aarch64",
+                    x86_64 = "b60eea24d60c1aaadc1386164ec6c5312a370c3012c8342bb2b23351dd53aaca",
+                    aarch64 = "9cd587d85b468267cf13487205f6a9ac3ce09db0e9bca1d8abc71aa66cc039f1",
                 },
             },
         },
