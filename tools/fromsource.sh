@@ -163,8 +163,11 @@ case "$arch" in
 esac
 allowed=" libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 librt.so.1 ld-linux-x86-64.so.2 ld-linux-aarch64.so.1 ${FROMSOURCE_ALLOW_NEEDED:-} "
 
-# xlings' own record of how this install resolved, not part of the package.
-rm -f "$payload/.xlings-resolution.json"
+# What xlings itself keeps in an install directory, not part of the package: the
+# payload stamp (.xpkg-install.json), the recipe snapshot (.xpkg.lua), how the
+# install resolved (.xlings-resolution.json), hook effects. Shipped, they would
+# describe the fromsource install to whoever installs the xim package.
+find "$payload" -mindepth 1 -maxdepth 1 \( -name '.xpkg*' -o -name '.xlings*' \) -exec rm -rf {} +
 find "$payload" -name '*.la' -delete
 glibc_max=""
 host_elfs=0

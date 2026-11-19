@@ -290,6 +290,7 @@ xim-pkgindex，由上游 res-build 重建并发布到 xlings-res，xim 配方切
 | 两次构建字节不同：宿主程序内嵌配置前缀，cc1/cc1plus 还有覆盖自身目标文件的 checksum | 构建目录固定（容器内 `/w`，宿主模式 `FROMSOURCE_WORK`） |
 | 固定目录后 cc1/cc1plus 仍不同：它们内嵌的 checksum 覆盖了宿主静态库（libbackend.a、libcody.a 等），而 xim:binutils 的 `ar` 默认记录时间戳与 uid | gcc 配方用包装脚本给宿主 `ar` / `ranlib` 的写操作加 `D`（包括 libcody 的 `ar -cr` 写法） |
 | 下载 xlings 时偶发 TLS 错误，`curl --retry` 默认不重试 | 加 `--retry-all-errors` |
+| CI 产物里出现 xlings 的安装元数据 `.xpkg-install.json`（payload stamp）和 `.xpkg.lua`（配方快照）——会把 fromsource 的安装状态带给 xim 包的安装者 | 导出时删除安装目录顶层所有 `.xpkg*` / `.xlings*` |
 
 **结果：两次全新构建（宿主模式、相同 `FROMSOURCE_WORK`）得到逐字节相同的 payload**（sha256 `97ad94b6…`）。
 
@@ -302,3 +303,14 @@ xim-pkgindex，由上游 res-build 重建并发布到 xlings-res，xim 配方切
   保护的写法，并用 newlib 验证。
 - 容器模式（`docker`）与 aarch64 尚未在本地运行，由 CI 首次验证。
 - xim 配方的 sha256 待 CI 构建并发布后填写（宿主模式与容器模式的字节不同，不能用本地构建的值）。
+
+### 7.5 CI 首次运行（2026-11-19，run 44446406293，commit 344441a）
+
+- lint、x86_64、aarch64 全部通过：**容器模式与 aarch64 首次验证即通过**（x86_64 约 30 分钟，aarch64 约 19 分钟）。
+- 两个架构的宿主 ELF 都只依赖 glibc，符号版本最高 2.38；provenance 记录了干净的 commit 与固定的 Debian 镜像。
+- 用 xim 配方（本地 overlay + 预置下载缓存）安装 CI 的 x86_64 产物：elfpatch 把 INTERP 绑到
+  `<home>/abi/linux-x86_64-glibc`，sysroot 跟随安装目录，cortex-m0 freestanding 链接、cortex-m33 C++ 编译通过。
+- 发现：产物顶层带着 xlings 的 `.xpkg-install.json` / `.xpkg.lua` / `.xlings-resolution.json`（本地宿主模式的
+  构建也有，之前未注意）；已在导出时统一删除，该次 CI 产物因此不发布。
+- 验证时注意：本机 PATH 中有 Arm 官方工具链（`~/local/arm-none-eabi`），测试 shim 时必须用
+  `env -i ... /bin/bash --noprofile --norc`，否则会误测到它。
