@@ -76,6 +76,22 @@ jobs:
           df -h /
       - name: Build
         run: bash tools/fromsource.sh ${{ matrix.kind == 'data' && '--data' || '' }} ${{ matrix.what }} ${{ matrix.version }} out
+      # The payload's own digest, where it is seen first. The artifact's digest on
+      # the run page is upload-artifact's zip, which records upload times: it
+      # differs between two runs even when the payloads are the same bytes.
+      - name: Payload digest
+        run: |
+          {
+            echo "### ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.arch }})"
+            echo
+            echo "| payload | bytes | sha256 |"
+            echo "|---|---:|---|"
+            for f in out/*.tar.gz; do
+              echo "| \`$(basename "$f")\` | $(stat -c %s "$f") | \`$(cut -d' ' -f1 "$f.sha256")\` |"
+            done
+            echo
+            echo "Compare builds by this sha256, not by the artifact digest (that one hashes the upload zip, with its upload times)."
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: res-${{ matrix.what }}-${{ matrix.version }}-${{ matrix.arch }}
@@ -103,6 +119,13 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          {
+            echo "### Releases"
+            echo
+            echo "| release | asset | this build's sha256 | result |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          row() { echo "| \`$meta\` | \`$n\` | \`$sha\` | $1 |" >> "$GITHUB_STEP_SUMMARY"; }
           for a in art/res-*; do
             meta="${a#art/res-}"; meta="${meta%-*}"                  # <what>-<version>
             for f in "$a"/*.tar.gz; do
@@ -112,16 +135,20 @@ jobs:
               if ! gh release view "$meta" -R "$REPO" >/dev/null 2>&1; then
                 gh release create "$meta" -R "$REPO" --title "$meta" \
                   --notes "Built by tools/fromsource.sh from fromsource/ (provenance inside each payload)." "$f" "$f.sha256"
+                row "release created"
                 continue
               fi
               have="$(gh release view "$meta" -R "$REPO" --json assets \
                        --jq ".assets[] | select(.name == \"$n\") | .digest" | sed 's/^sha256://')"
               if [[ -z "$have" ]]; then
                 gh release upload "$meta" -R "$REPO" "$f" "$f.sha256"
+                row "uploaded"
               elif [[ "$have" == "$sha" ]]; then
                 echo "$n: already published, same bytes"
+                row "already published, same bytes"
               else
                 echo "::warning::$n: published as $have, this build is $sha; the published one is kept"
+                row "⚠️ published as \`$have\`; the published one is kept"
               fi
             done
           done
