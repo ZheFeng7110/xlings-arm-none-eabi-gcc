@@ -1,0 +1,4 @@
+# written by xlings into an index it reads
+.xlings-index-cache.json
+# tools/fromsource.sh output
+/out/

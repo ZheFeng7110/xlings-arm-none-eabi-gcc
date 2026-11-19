@@ -1,0 +1,127 @@
+name: build
+
+# Builds the payloads in .github/build-matrix.json with tools/fromsource.sh: each
+# one an ordinary `xlings install fromsource:<what>@<version>` in a pinned Debian
+# container, on the architecture it is for, then checked, normalized and packed.
+# The artifacts are named as xim-pkgindex's res-build names its
+# (res-<what>-<version>-<arch>: one payload and its .sha256).
+#
+# Publishing is a separate, explicit step (`release: true`): each payload is added
+# to this repository's release `<what>-<version>`; an asset already there is never
+# replaced (a rebuild of a published version is a new revision, not new bytes).
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "build only this package, or one version of it (`what` or `what@version`; empty: all)"
+        required: false
+        default: ""
+      release:
+        description: "add the payloads to this repository's releases"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "fromsource/**"
+      - "tools/**"
+      - ".github/**"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get -qq update && sudo apt-get -qq install -y lua5.4 shellcheck >/dev/null
+      - name: Lua syntax
+        run: for f in fromsource/pkgs/*/*.lua xim/pkgs/*/*.lua; do luac5.4 -p "$f"; done
+      - name: Shell
+        run: shellcheck -S warning tools/*.sh tools/checks/*.sh
+
+  plan:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          what="${ONLY%@*}"; version=""; [[ "$ONLY" == *@* ]] && version="${ONLY#*@}"
+          m="$(jq -c --arg w "$what" --arg v "$version" \
+                '[.[] | select(($w == "" or .what == $w) and ($v == "" or .version == $v))]' .github/build-matrix.json)"
+          [[ "$m" != "[]" ]] || { echo "::error::nothing in build-matrix.json matches '$ONLY'"; exit 1; }
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.arch }})
+    needs: plan
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Room to build
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache || true
+          df -h /
+      - name: Build
+        run: bash tools/fromsource.sh ${{ matrix.kind == 'data' && '--data' || '' }} ${{ matrix.what }} ${{ matrix.version }} out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: res-${{ matrix.what }}-${{ matrix.version }}-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: res-*
+          path: art
+      - name: Add to releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for a in art/res-*; do
+            meta="${a#art/res-}"; meta="${meta%-*}"                  # <what>-<version>
+            for f in "$a"/*.tar.gz; do
+              n="$(basename "$f")"
+              (cd "$a" && sha256sum -c "$n.sha256")
+              sha="$(cut -d' ' -f1 "$f.sha256")"
+              if ! gh release view "$meta" -R "$REPO" >/dev/null 2>&1; then
+                gh release create "$meta" -R "$REPO" --title "$meta" \
+                  --notes "Built by tools/fromsource.sh from fromsource/ (provenance inside each payload)." "$f" "$f.sha256"
+                continue
+              fi
+              have="$(gh release view "$meta" -R "$REPO" --json assets \
+                       --jq ".assets[] | select(.name == \"$n\") | .digest" | sed 's/^sha256://')"
+              if [[ -z "$have" ]]; then
+                gh release upload "$meta" -R "$REPO" "$f" "$f.sha256"
+              elif [[ "$have" == "$sha" ]]; then
+                echo "$n: already published, same bytes"
+              else
+                echo "::warning::$n: published as $have, this build is $sha; the published one is kept"
+              fi
+            done
+          done

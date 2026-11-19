@@ -1,0 +1,4 @@
+[
+  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "arch": "x86_64", "kind": "binary" },
+  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "arch": "aarch64", "kind": "binary" }
+]
