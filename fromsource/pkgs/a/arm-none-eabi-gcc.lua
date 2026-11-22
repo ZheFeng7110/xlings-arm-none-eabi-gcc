@@ -71,7 +71,7 @@ package = {
                 runtime = { "xim:glibc@2.44.3", "xim:linux-headers@5.11.1" },
                 build = {
                     "arm-none-eabi-binutils@2.43.1",
-                    "xim:gcc@16.2.0", "xim:binutils@2.42.1", "xim:make@4.3",
+                    "xim:gcc@16.2.0", "xim:binutils@2.47", "xim:make@4.3",
                 },
             },
             ["latest"] = { ref = "14.2.0" },
@@ -137,7 +137,8 @@ export CFLAGS_FOR_TARGET="-O2 -ffunction-sections -fdata-sections -ffile-prefix-
 export CXXFLAGS_FOR_TARGET="$CFLAGS_FOR_TARGET"
 
 rm -rf "$w"; mkdir -p "$w" && cd "$w"
-fail() { echo "[arm-none-eabi-gcc] $1 failed; tail of $w/$1.log:" >&2; tail -60 "$w/$1.log" >&2; exit 1; }
+fail() { echo "[arm-none-eabi-gcc] $1 failed; first errors and tail of $w/$1.log:" >&2
+    grep -n -m12 -E "\*\*\*|[Ee]rror[: ]" "$w/$1.log" >&2 || true; echo ... >&2; tail -40 "$w/$1.log" >&2; exit 1; }
 
 # Host archives without timestamps or uids. cc1 embeds a checksum of the objects
 # and static libraries it is linked from (libbackend.a, libiberty.a, ...), so an

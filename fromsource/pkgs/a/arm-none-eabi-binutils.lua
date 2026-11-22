@@ -46,7 +46,7 @@ package = {
             deps = {
                 -- runtime: what makes the SubOS a sysroot for the host compiler
                 runtime = { "xim:glibc@2.44.3", "xim:linux-headers@5.11.1" },
-                build = { "xim:gcc@16.2.0", "xim:binutils@2.42.1", "xim:make@4.3" },
+                build = { "xim:gcc@16.2.0", "xim:binutils@2.47", "xim:make@4.3" },
             },
             ["latest"] = { ref = "2.43.1" },
             ["2.43.1"] = {
@@ -98,7 +98,8 @@ else
 fi
 
 rm -rf "$w"; mkdir -p "$w" && cd "$w"
-fail() { echo "[arm-none-eabi-binutils] $1 failed; tail of $w/$1.log:" >&2; tail -60 "$w/$1.log" >&2; exit 1; }
+fail() { echo "[arm-none-eabi-binutils] $1 failed; first errors and tail of $w/$1.log:" >&2
+    grep -n -m12 -E "\*\*\*|[Ee]rror[: ]" "$w/$1.log" >&2 || true; echo ... >&2; tail -40 "$w/$1.log" >&2; exit 1; }
 
 "$src/configure" --target=$target --prefix="$prefix" --with-sysroot="$prefix/$target" \
     --with-pkgversion=xlings-fromsource --disable-nls --disable-werror --without-zstd \

@@ -47,7 +47,7 @@ package = {
                     "arm-none-eabi-binutils-mingw-cross@2.43.1",
                     "arm-none-eabi-gcc@14.2.0",
                     "xim:mingw-cross-gcc@16.1.0",
-                    "xim:gcc@16.2.0", "xim:binutils@2.42.1", "xim:make@4.3",
+                    "xim:gcc@16.2.0", "xim:binutils@2.47", "xim:make@4.3",
                 },
             },
             ["latest"] = { ref = "14.2.0" },
@@ -96,7 +96,8 @@ export LDFLAGS="-static-libgcc -static-libstdc++ -Wl,--no-insert-timestamp"
 export SOURCE_DATE_EPOCH=0
 
 rm -rf "$w"; mkdir -p "$w" && cd "$w"
-fail() { echo "[arm-none-eabi-gcc-mingw-cross] $1 failed; tail of $w/$1.log:" >&2; tail -60 "$w/$1.log" >&2; exit 1; }
+fail() { echo "[arm-none-eabi-gcc-mingw-cross] $1 failed; first errors and tail of $w/$1.log:" >&2
+    grep -n -m12 -E "\*\*\*|[Ee]rror[: ]" "$w/$1.log" >&2 || true; echo ... >&2; tail -40 "$w/$1.log" >&2; exit 1; }
 
 # Archives without timestamps or uids, for the build's and the host's ar alike:
 # cc1 embeds a checksum of the static libraries it is linked from (see
