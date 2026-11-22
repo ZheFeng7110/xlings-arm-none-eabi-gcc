@@ -90,11 +90,14 @@ if [[ "$(uname -s)" == Darwin ]]; then
     # Xcode's clang and SDK. ZERO_AR_DATE: ar and ld64 record no times.
     export CC="clang -std=gnu17" CXX="clang++ -std=gnu++17" LDFLAGS=""
     export MACOSX_DEPLOYMENT_TARGET=11.0 ZERO_AR_DATE=1
+    # The bundled zlib's zutil.h defines fdopen, which the macOS SDK declares.
+    zlib="--with-system-zlib"
 else
     # The host compiler: xim:gcc against the SubOS sysroot (glibc + linux-headers).
     L="$(ls "$S"/lib/ld-linux-*.so.* | head -1)"
     export CC="gcc --sysroot=$S -std=gnu17" CXX="g++ --sysroot=$S -std=gnu++17"
     export LDFLAGS="-Wl,--dynamic-linker=$L -Wl,-rpath,$S/lib -static-libstdc++ -static-libgcc"
+    zlib=""
 fi
 
 rm -rf "$w"; mkdir -p "$w" && cd "$w"
@@ -102,7 +105,7 @@ fail() { echo "[arm-none-eabi-binutils] $1 failed; first errors and tail of $w/$
     grep -n -m12 -E "\*\*\*|[Ee]rror[: ]" "$w/$1.log" >&2 || true; echo ... >&2; tail -40 "$w/$1.log" >&2; exit 1; }
 
 "$src/configure" --target=$target --prefix="$prefix" --with-sysroot="$prefix/$target" \
-    --with-pkgversion=xlings-fromsource --disable-nls --disable-werror --without-zstd \
+    --with-pkgversion=xlings-fromsource --disable-nls --disable-werror --without-zstd $zlib \
     --enable-multilib --enable-interwork --enable-plugins --enable-deterministic-archives \
     --disable-gdb --disable-gdbserver --disable-sim --disable-gprofng \
     --disable-libdecnumber --disable-readline --without-debuginfod \

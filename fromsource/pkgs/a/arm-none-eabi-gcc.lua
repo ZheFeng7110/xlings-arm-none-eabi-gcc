@@ -121,12 +121,15 @@ if $darwin; then
     export CC="clang -std=gnu17" CXX="clang++ -std=gnu++17" LDFLAGS=""
     export MACOSX_DEPLOYMENT_TARGET=11.0 ZERO_AR_DATE=1
     static_std=""
+    # The bundled zlib's zutil.h defines fdopen, which the macOS SDK declares.
+    zlib="--with-system-zlib"
 else
     # The host compiler: xim:gcc against the SubOS sysroot (glibc + linux-headers).
     L="$(ls "$S"/lib/ld-linux-*.so.* | head -1)"
     export CC="gcc --sysroot=$S -std=gnu17" CXX="g++ --sysroot=$S -std=gnu++17"
     export LDFLAGS="-Wl,--dynamic-linker=$L -Wl,-rpath,$S/lib"
     static_std="--with-static-standard-libraries"
+    zlib=""
 fi
 
 # Target libraries: each function in its own section (what --gc-sections in a
@@ -173,7 +176,7 @@ export PATH="$prefix/bin:$PATH"
 
 mkdir -p b-gcc && cd b-gcc
 "$src/configure" --target=$target --prefix="$prefix" --with-sysroot="$prefix/$target" \
-    --with-pkgversion=xlings-fromsource --disable-nls --disable-werror --without-zstd \
+    --with-pkgversion=xlings-fromsource --disable-nls --disable-werror --without-zstd $zlib \
     --with-native-system-header-dir=/include --with-multilib-list=rmprofile \
     --enable-languages=c,c++ --without-headers --with-newlib \
     --disable-shared --disable-threads --disable-tls --disable-libssp \
