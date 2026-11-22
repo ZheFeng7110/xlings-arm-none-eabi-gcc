@@ -25,6 +25,7 @@
 #   container  (default when docker is on PATH) a pinned Debian image; the image
 #              supplies only the host tools the recipes expect (m4, perl, tar,
 #              bzip2, xz, wget); compilers, glibc and binutils come from xlings.
+#              --host windows uses a Debian 13 image: xim:mingw-cross-gcc needs glibc 2.38.
 #   host       this machine, with a scrubbed environment: PATH is xlings' own,
 #              /usr/bin:/bin and FROMSOURCE_HOST_TOOLS (a directory of extra tools).
 #              On macOS (Apple Silicon) the only mode: Xcode's clang builds there,
@@ -44,6 +45,9 @@ set -euo pipefail
 XLINGS_VERSION="${XLINGS_VERSION:-2026.11.16.1}"
 # The factory image, pinned by digest (the one xim-pkgindex tools/res/build.sh uses).
 DEBIAN="debian:12@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858"
+# The Windows cross factory: xim:mingw-cross-gcc runs on the host's glibc (no
+# xim:glibc binding) and needs 2.38 (and libzstd.so.1); Debian 12 has 2.36.
+DEBIAN_MINGW="debian:13@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6"
 HOST_PKGS="ca-certificates curl wget xz-utils bzip2 m4 perl"
 
 log() { printf '[fromsource] %s\n' "$*" >&2; }
@@ -90,12 +94,13 @@ if [[ "$mode" == container ]]; then
     [[ "$build_os" == linux ]] || die "container mode is for Linux"
     commit="$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)"
     [[ -z "$(git -C "$repo" status --porcelain 2>/dev/null)" ]] || commit="$commit-dirty"
-    pkgs="$HOST_PKGS"; [[ "$target_os" == windows ]] && pkgs="$pkgs zip"
+    image="$DEBIAN"; pkgs="$HOST_PKGS"
+    [[ "$target_os" == windows ]] && { image="$DEBIAN_MINGW"; pkgs="$pkgs zip"; }
     opts=""; [[ "$kind" == data ]] && opts="--data"; [[ "$target_os" != linux ]] && opts="$opts --host $target_os"
-    log "$recipe_name $version in $DEBIAN"
+    log "$recipe_name $version in $image"
     docker run --rm -v "$repo:/src:ro" -v "$out:/out" -e DEBIAN_FRONTEND=noninteractive \
         -e FROMSOURCE_MODE=inner -e FROMSOURCE_COMMIT="$commit" -e XLINGS_VERSION \
-        -e FROMSOURCE_ALLOW_NEEDED -e FROMSOURCE_PKGS="$pkgs" "$DEBIAN" bash -euo pipefail -c "
+        -e FROMSOURCE_ALLOW_NEEDED -e FROMSOURCE_PKGS="$pkgs" -e FROMSOURCE_IMAGE="$image" "$image" bash -euo pipefail -c "
             trap 'chown -R $(id -u):$(id -g) /out' EXIT
             apt-get -qq update && apt-get -qq install -y --no-install-recommends $pkgs >/dev/null
             bash /src/tools/fromsource.sh $opts '$name' '$version' /out"
@@ -316,7 +321,7 @@ log "host programs naming the configured prefix (relocated at run time): $(sed '
 # --- provenance and the archive ----------------------------------------------
 recipe="$(ls "$repo"/fromsource/pkgs/*/"$recipe_name".lua)"
 deps="$(xlings info "fromsource:$recipe_name@$version" --agent 2>/dev/null | grep -E 'deps:' | sed 's/^ *//' | tr '\n' ';' || true)"
-if [[ "$mode" == inner ]]; then factory="$DEBIAN, host tools: ${FROMSOURCE_PKGS:-$HOST_PKGS}"
+if [[ "$mode" == inner ]]; then factory="${FROMSOURCE_IMAGE:-$DEBIAN}, host tools: ${FROMSOURCE_PKGS:-$HOST_PKGS}"
 elif [[ "$build_os" == macosx ]]; then
     factory="host mode on $(sw_vers -productName) $(sw_vers -productVersion) $(uname -m), $(xcrun clang --version | head -1), SDK $(xcrun --show-sdk-version)$reused"
 else factory="host mode on $(uname -srm)$reused"; fi

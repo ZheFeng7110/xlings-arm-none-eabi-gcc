@@ -9,6 +9,8 @@
 -- statically (-static: no libgcc, libstdc++ or winpthread DLL), so they need only
 -- Windows' own DLLs. --no-insert-timestamp: a PE header records no build time.
 -- The build-side helpers are compiled by xim:gcc against the SubOS's xim:glibc.
+-- xim:mingw-cross-gcc runs on the host's own glibc (2.38 or later; tools/fromsource.sh
+-- builds this in a Debian 13 image).
 --
 -- Host tools the build expects on PATH (not in the index): m4, perl, tar, xz.
 package = {

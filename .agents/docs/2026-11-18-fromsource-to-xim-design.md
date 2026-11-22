@@ -1,3 +1,6 @@
+| （CI）容器里 mingw 编译器 “cannot create executables”：xim:mingw-cross-gcc 不声明 glibc 依赖、用宿主 glibc，需要 2.38 与 libzstd.so.1，Debian 12 只有 2.36 | Windows 交叉工厂改用固定 digest 的 Debian 13 镜像（glibc 2.41）；Linux payload 仍用 Debian 12（其 glibc 基线由 xim:glibc 决定，与镜像无关） |
+| （CI）xim:gcc@16.2.0 发布了 revision 1，产生 `.base64` / `.aeabi_subsection`，固定的 xim:binutils@2.42.1 的 as 不认 | 构建依赖改为 xim:binutils@2.47 |
+| （CI）macOS：binutils 自带 zlib 的 zutil.h 定义了 fdopen，与 Xcode 16.4 SDK 的声明冲突 | macOS 用 `--with-system-zlib`（/usr/lib/libz.dylib） |
 # arm-none-eabi 工具链：fromsource 构建 → 打包 → xlings-res → xim 设计记录
 
 > 日期：2026-11-17 ~ 2026-11-18
