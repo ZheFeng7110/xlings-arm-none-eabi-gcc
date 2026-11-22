@@ -1,10 +1,15 @@
 name: build
 
 # Builds the payloads in .github/build-matrix.json with tools/fromsource.sh: each
-# one an ordinary `xlings install fromsource:<what>@<version>` in a pinned Debian
-# container, on the architecture it is for, then checked, normalized and packed.
+# one an ordinary `xlings install fromsource:<what>@<version>`, then checked,
+# normalized and packed. Where each is built:
+#   linux    in a pinned Debian container, on the architecture it is for
+#   windows  cross-built in the same container on x86_64 Linux (fromsource:<what>-mingw-cross),
+#            then checked on a Windows runner (the `check` job)
+#   macosx   on an Apple Silicon runner, with Xcode's clang (host mode)
 # The artifacts are named as xim-pkgindex's res-build names its
-# (res-<what>-<version>-<arch>: one payload and its .sha256).
+# (res-<what>-<version>-<arch>: one payload and its .sha256); a payload for another
+# OS than Linux has it before the arch (res-<what>-<version>-<os>-<arch>).
 #
 # Publishing is a separate, explicit step (`release: true`): each payload is added
 # to this repository's release `<what>-<version>`; an asset already there is never
@@ -14,6 +19,10 @@ on:
     inputs:
       only:
         description: "build only this package, or one version of it (`what` or `what@version`; empty: all)"
+        required: false
+        default: ""
+      os:
+        description: "build only for this OS (linux, windows, macosx; empty: all)"
         required: false
         default: ""
       release:
@@ -40,6 +49,8 @@ jobs:
         run: for f in fromsource/pkgs/*/*.lua xim/pkgs/*/*.lua; do luac5.4 -p "$f"; done
       - name: Shell
         run: shellcheck -S warning tools/*.sh tools/checks/*.sh
+      - name: Matrix
+        run: jq -e 'all(.[]; (.os | IN("linux", "windows", "macosx")) and (.arch | IN("x86_64", "aarch64")))' .github/build-matrix.json
 
   plan:
     if: github.event_name == 'workflow_dispatch'
@@ -47,22 +58,27 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      windows: ${{ steps.plan.outputs.windows }}
     steps:
       - uses: actions/checkout@v4
       - id: plan
         env:
           ONLY: ${{ inputs.only }}
+          OS: ${{ inputs.os }}
         run: |
           what="${ONLY%@*}"; version=""; [[ "$ONLY" == *@* ]] && version="${ONLY#*@}"
-          m="$(jq -c --arg w "$what" --arg v "$version" \
-                '[.[] | select(($w == "" or .what == $w) and ($v == "" or .version == $v))]' .github/build-matrix.json)"
-          [[ "$m" != "[]" ]] || { echo "::error::nothing in build-matrix.json matches '$ONLY'"; exit 1; }
+          m="$(jq -c --arg w "$what" --arg v "$version" --arg o "$OS" \
+                '[.[] | select(($w == "" or .what == $w) and ($v == "" or .version == $v) and ($o == "" or .os == $o))
+                      | . + { artifact: ("res-\(.what)-\(.version)-" + (if .os == "linux" then "" else "\(.os)-" end) + .arch) }]' \
+                .github/build-matrix.json)"
+          [[ "$m" != "[]" ]] || { echo "::error::nothing in build-matrix.json matches '$ONLY' (os '$OS')"; exit 1; }
           echo "matrix=$m" >> "$GITHUB_OUTPUT"
+          echo "windows=$(jq -c '[.[] | select(.os == "windows")]' <<<"$m")" >> "$GITHUB_OUTPUT"
 
   build:
-    name: ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.arch }})
+    name: ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.os }} ${{ matrix.arch }})
     needs: plan
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.os == 'macosx' && 'macos-15' || (matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04') }}
     timeout-minutes: 330
     strategy:
       fail-fast: false
@@ -71,36 +87,86 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Room to build
+        if: runner.os == 'Linux'
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache || true
           df -h /
+      # macOS: no container; Xcode's clang builds, GNU tar packs. A fixed build
+      # directory, as /w is in the container: the prefix is in the programs.
+      - name: Host tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          command -v gtar >/dev/null || brew install gnu-tar
+          xcrun clang --version | head -1
+          echo "FROMSOURCE_WORK=/Users/Shared/fromsource-w" >> "$GITHUB_ENV"
       - name: Build
-        run: bash tools/fromsource.sh ${{ matrix.kind == 'data' && '--data' || '' }} ${{ matrix.what }} ${{ matrix.version }} out
+        run: >-
+          bash tools/fromsource.sh
+          ${{ matrix.kind == 'data' && '--data' || '' }}
+          ${{ matrix.os == 'windows' && '--host windows' || '' }}
+          ${{ matrix.what }} ${{ matrix.version }} out
       # The payload's own digest, where it is seen first. The artifact's digest on
       # the run page is upload-artifact's zip, which records upload times: it
       # differs between two runs even when the payloads are the same bytes.
       - name: Payload digest
         run: |
           {
-            echo "### ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.arch }})"
+            echo "### ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.os }} ${{ matrix.arch }})"
             echo
             echo "| payload | bytes | sha256 |"
             echo "|---|---:|---|"
-            for f in out/*.tar.gz; do
-              echo "| \`$(basename "$f")\` | $(stat -c %s "$f") | \`$(cut -d' ' -f1 "$f.sha256")\` |"
+            for f in out/*.tar.gz out/*.zip; do
+              [[ -f "$f" ]] || continue
+              echo "| \`$(basename "$f")\` | $(wc -c < "$f" | tr -d ' ') | \`$(cut -d' ' -f1 "$f.sha256")\` |"
             done
             echo
             echo "Compare builds by this sha256, not by the artifact digest (that one hashes the upload zip, with its upload times)."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: res-${{ matrix.what }}-${{ matrix.version }}-${{ matrix.arch }}
+          name: ${{ matrix.artifact }}
           path: out/
           if-no-files-found: error
 
+  # A payload cross-built for Windows is checked where it runs: unpacked on a
+  # Windows runner and given the same tools/checks/<what>.sh (in Git Bash).
+  check:
+    name: check ${{ matrix.what }} ${{ matrix.version }} (windows ${{ matrix.arch }})
+    needs: [plan, build]
+    if: needs.plan.outputs.windows != '[]'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.windows) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: art
+      - name: Check
+        run: |
+          set -euo pipefail
+          cd art && sha256sum -c ./*.sha256
+          for z in ./*.zip; do unzip -q "$z" || 7z x -y "$z" >/dev/null; done
+          cd ..
+          d="$(ls -d art/*/)"
+          check="tools/checks/${{ matrix.what }}.sh"
+          if [[ -f "$check" ]]; then bash "$check" "$PWD/${d%/}" "${{ matrix.version }}"
+          else echo "no $check"; fi
+          echo "${{ matrix.what }} ${{ matrix.version }} checked on $(uname -s) ($(cmd //c ver | tr -d '\r' | sed '/^$/d'))"
+
   release:
-    if: github.event_name == 'workflow_dispatch' && inputs.release
-    needs: build
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && inputs.release
+      && needs.build.result == 'success'
+      && (needs.check.result == 'success' || needs.check.result == 'skipped')
+    needs: [build, check]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     concurrency:
@@ -127,8 +193,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           row() { echo "| \`$meta\` | \`$n\` | \`$sha\` | $1 |" >> "$GITHUB_STEP_SUMMARY"; }
           for a in art/res-*; do
-            meta="${a#art/res-}"; meta="${meta%-*}"                  # <what>-<version>
-            for f in "$a"/*.tar.gz; do
+            meta="${a#art/res-}"; meta="${meta%-*}"                  # <what>-<version>[-<os>]
+            case "$meta" in *-windows|*-macosx) meta="${meta%-*}" ;; esac
+            for f in "$a"/*.tar.gz "$a"/*.zip; do
+              [[ -f "$f" ]] || continue
               n="$(basename "$f")"
               (cd "$a" && sha256sum -c "$n.sha256")
               sha="$(cut -d' ' -f1 "$f.sha256")"

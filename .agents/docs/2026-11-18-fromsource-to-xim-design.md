@@ -329,3 +329,48 @@ xim-pkgindex，由上游 res-build 重建并发布到 xlings-res，xim 配方切
   发布了新 revision，产物就可能变化，届时需要按新版本 revision 重新发布。
 - xim 配方已填入上述 sha256；在全新 home 中直接从 GitHub Release 下载安装（不再预置缓存）通过：shim、可重定位
   sysroot、cortex-m0 链接均正常；发布的 tarball 顶层不再含 `.xpkg*` / `.xlings*`。
+
+## 8. Windows 与 macOS（2026-11-19）
+
+### 8.1 方案
+
+| 平台 | 在哪里构建 | 编译器 | 产物 |
+|---|---|---|---|
+| Windows x86_64 | x86_64 Linux（同一 Debian 容器） | xim:mingw-cross-gcc@16.1.0（Canadian cross：build=Linux，host=mingw，target=arm-none-eabi） | `<name>-<ver>-windows-x86_64.zip` |
+| macOS aarch64 | Apple Silicon runner（`macos-15`，宿主模式） | Xcode clang + SDK，`MACOSX_DEPLOYMENT_TARGET=11.0` | `<name>-<ver>-macosx-aarch64.tar.gz` |
+
+- 依据：xlings 只发布 `linux-*`、`macosx-arm64`、`windows-x86_64` 客户端；xim 在 macOS 上没有 gcc / make，
+  在 Linux 上有 mingw-cross-gcc。在 Windows 上原生构建 GCC 需要 MSYS2 整套 POSIX 环境，慢且难复现；交叉构建
+  也是 Arm 官方 Windows 工具链的做法。没有 Intel macOS（xlings 无该客户端）。
+- Windows 是**单独的 fromsource 配方** `arm-none-eabi-binutils-mingw-cross` / `arm-none-eabi-gcc-mingw-cross`（仅
+  `linux` 段，安装出的是给 Windows 用的 .exe 目录树，不注册 xvm）。`tools/fromsource.sh --host windows <name>`
+  构建 `fromsource:<name>-mingw-cross`，产物仍以 `<name>` 命名。
+  命名参照主索引的 `mingw-cross-gcc`（在 Linux 上运行、产出 Windows 程序）与 `mingw-gcc`（在 Windows 上运行）分成两个包；
+  上游 fromsource 索引（`bec5139`）的 45 个配方都只有 `linux` 段、`archs = {"x86_64"}`，没有多平台或交叉构建的先例。
+- Windows 版只构建编译器（`all-gcc`），**libgcc 从 Linux 构建（fromsource:arm-none-eabi-gcc）复制**：目标代码
+  与宿主无关，三个平台的 libgcc 字节相同，multilib 集合一致。
+- macOS 用同一份 `arm-none-eabi-binutils` / `arm-none-eabi-gcc` 配方的 `macosx` 段；构建脚本按 `uname -s` 分支
+  （clang、无 `--with-static-standard-libraries`、`ZERO_AR_DATE=1` 代替 ar 包装、`sed -i.orig` 兼容 BSD sed）。
+  in-tree gmp 由 GCC 以 `--host=none-…` 配置（纯 C），不受 Apple Silicon 上 x18 寄存器问题影响。
+- 导出的规范化按宿主：Linux 同前；macOS 检查 Mach-O 只链接 `/usr/lib`、`/System/Library`，无 `LC_RPATH`，
+  记录 minos；Windows 检查 PE 只导入系统 DLL，且 PE 头时间戳为 0。Windows 打包为可复现 zip
+  （固定 mtime 与 `TZ=UTC0`，`-X -D`，排序）。
+- 检查：macOS 在构建机上运行 `tools/checks/<name>.sh`；Windows 产物在 CI 的 `check` job（`windows-2022`，Git Bash）
+  上解压后运行同一脚本（脚本去掉 Windows 程序输出的 CR，readelf 默认用 payload 自带的）。
+
+### 8.2 本地验证（x86_64 宿主模式）与修复
+
+| 问题 | 修复 |
+|---|---|
+| Canadian cross 时 `gcc/build.*` 子 configure 的测试程序不能运行：不使用 `LDFLAGS_FOR_BUILD`，且 SubOS 没有 libstdc++ | loader、rpath、`-static-libstdc++ -static-libgcc` 直接写进 `CC_FOR_BUILD` / `CXX_FOR_BUILD`；`LD_FOR_BUILD=ld LDFLAGS_FOR_BUILD=""`（否则默认取 mingw 的） |
+| binutils 程序导入 `libwinpthread-1.dll` | libtool 会删掉任何位置的 `-static`；改为在 CC 中写 `--static`（GCC 视为同义，libtool 不识别而原样传递） |
+| 所有 PE 都带构建时间：`install-strip` 时 strip 重写 PE 头 | `SOURCE_DATE_EPOCH=0`（ld 另有 `--no-insert-timestamp`） |
+
+结果：`fromsource:arm-none-eabi-gcc-mingw-cross@14.2.0` 构建通过，45 个 PE 程序只导入 KERNEL32 / msvcrt / ADVAPI32，
+时间戳为 0；29 个 multilib 的 libgcc.a 齐全；zip 约 95 MB。新增 `FROMSOURCE_KEEP=1`：失败时保留构建目录以便查看 `config.log`。
+
+### 8.3 尚未验证
+
+- macOS 构建（本地无 Mac），由 CI 首次验证；Windows 产物在真实 Windows 上的检查由 CI `check` job 首次验证。
+- Windows / macOS 产物的逐字节可复现性尚未用两次构建核对。
+- xim 配方的 `windows` / `macosx` 段待 CI 构建并发布后填写 sha256（`${ext}` 在 Windows 上为 zip，install() 需相应去掉 `.zip`）。

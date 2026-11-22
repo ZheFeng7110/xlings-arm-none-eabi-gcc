@@ -23,11 +23,13 @@
 --       with inhibit_libc. Consequence: no libgcov (`--coverage` does not link).
 --
 --   --with-static-standard-libraries, --without-zstd, in-tree gmp/mpfr/mpc: the
---       host programs need glibc and nothing else.
+--       host programs need glibc and nothing else (on macOS: the system's libraries).
 --
--- Host programs are compiled by xim:gcc against the SubOS's xim:glibc, as
--- fromsource:arm-none-eabi-binutils is. Host tools expected on PATH (not in the
--- index): m4 (in-tree gmp), perl, tar, bzip2, xz, wget (download_prerequisites).
+-- Host programs are compiled as fromsource:arm-none-eabi-binutils' are: on Linux by
+-- xim:gcc against the SubOS's xim:glibc, on macOS (Apple Silicon) by Xcode's clang.
+-- The Windows toolchain is fromsource:arm-none-eabi-gcc-mingw-cross, cross-built on
+-- Linux. Host tools expected on PATH (not in the index): m4 (in-tree gmp), perl,
+-- tar, bzip2, xz, wget or curl (download_prerequisites).
 package = {
     spec = "1",
 
@@ -81,6 +83,20 @@ package = {
                 sha256 = "a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9",
             },
         },
+        -- Apple Silicon; Xcode's clang, make, m4 and perl in /usr/bin.
+        macosx = {
+            deps = {
+                build = { "arm-none-eabi-binutils@2.43.1" },
+            },
+            ["latest"] = { ref = "14.2.0" },
+            ["14.2.0"] = {
+                url = {
+                    GLOBAL = "https://ftpmirror.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz",
+                    CN = "https://mirrors.ustc.edu.cn/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz",
+                },
+                sha256 = "a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9",
+            },
+        },
     },
 }
 
@@ -89,19 +105,29 @@ import("xim.libxpkg.system")
 import("xim.libxpkg.log")
 import("xim.libxpkg.xvm")
 
--- Run as `bash <this> <source dir> <prefix> <build dir> <sysroot> <binutils prefix>`.
+-- Run as `bash <this> <source dir> <prefix> <build dir> <sysroot (Linux; - on macOS)> <binutils prefix>`.
 local build_sh = [==[
 set -euo pipefail
 src="$1"; prefix="$2"; w="$3"; S="$4"; binutils="$5"
 target=arm-none-eabi
-j="$(nproc)"
+j="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN)"
+darwin=false; [[ "$(uname -s)" == Darwin ]] && darwin=true
 
-# The host compiler: xim:gcc against the SubOS sysroot (glibc + linux-headers).
 # gnu17/gnu++17: GCC 14 and its gmp predate C23, which GCC 15+ defaults to.
-L="$(ls "$S"/lib/ld-linux-*.so.* | head -1)"
-export CC="gcc --sysroot=$S -std=gnu17" CXX="g++ --sysroot=$S -std=gnu++17"
 export CFLAGS="-O2" CXXFLAGS="-O2"
-export LDFLAGS="-Wl,--dynamic-linker=$L -Wl,-rpath,$S/lib"
+if $darwin; then
+    # Xcode's clang and SDK (libc++ is the system's). ZERO_AR_DATE: ar and ld64
+    # record no times, which the ar wrappers below do on Linux.
+    export CC="clang -std=gnu17" CXX="clang++ -std=gnu++17" LDFLAGS=""
+    export MACOSX_DEPLOYMENT_TARGET=11.0 ZERO_AR_DATE=1
+    static_std=""
+else
+    # The host compiler: xim:gcc against the SubOS sysroot (glibc + linux-headers).
+    L="$(ls "$S"/lib/ld-linux-*.so.* | head -1)"
+    export CC="gcc --sysroot=$S -std=gnu17" CXX="g++ --sysroot=$S -std=gnu++17"
+    export LDFLAGS="-Wl,--dynamic-linker=$L -Wl,-rpath,$S/lib"
+    static_std="--with-static-standard-libraries"
+fi
 
 # Target libraries: each function in its own section (what --gc-sections in a
 # firmware link needs to drop what is unused). libgcc adds -g of its own; the
@@ -117,9 +143,11 @@ fail() { echo "[arm-none-eabi-gcc] $1 failed; tail of $w/$1.log:" >&2; tail -60 
 # and static libraries it is linked from (libbackend.a, libiberty.a, ...), so an
 # archive that records when it was made is a different cc1 on every build.
 # xim:binutils' ar is not deterministic by default; these put D on every write.
-real_ar="$(command -v ar)"; real_ranlib="$(command -v ranlib)"
-mkdir -p "$w/hostbin"
-cat > "$w/hostbin/ar" <<EOF
+# (Xcode's ar has no D: ZERO_AR_DATE above does it there.)
+if ! $darwin; then
+    real_ar="$(command -v ar)"; real_ranlib="$(command -v ranlib)"
+    mkdir -p "$w/hostbin"
+    cat > "$w/hostbin/ar" <<EOF
 #!/bin/sh
 case "\$1" in
     --*|*[!A-Za-z-]*) ;;
@@ -127,9 +155,10 @@ case "\$1" in
 esac
 exec "$real_ar" "\$@"
 EOF
-printf '#!/bin/sh\nexec "%s" -D "$@"\n' "$real_ranlib" > "$w/hostbin/ranlib"
-chmod +x "$w/hostbin/ar" "$w/hostbin/ranlib"
-export PATH="$w/hostbin:$PATH"
+    printf '#!/bin/sh\nexec "%s" -D "$@"\n' "$real_ranlib" > "$w/hostbin/ranlib"
+    chmod +x "$w/hostbin/ar" "$w/hostbin/ranlib"
+    export PATH="$w/hostbin:$PATH"
+fi
 
 # binutils first, in this prefix: GCC is configured to find as/ld there.
 mkdir -p "$prefix"
@@ -138,7 +167,7 @@ export PATH="$prefix/bin:$PATH"
 
 # gmp, mpfr, mpc in the tree (linked static), checked against the sha512 GCC
 # itself ships (contrib/prerequisites.sha512). No isl: no Graphite.
-(cd "$src" && sed -i 's#ftp://gcc.gnu.org#https://gcc.gnu.org#' contrib/download_prerequisites \
+(cd "$src" && sed -i.orig 's#ftp://gcc.gnu.org#https://gcc.gnu.org#' contrib/download_prerequisites \
     && ./contrib/download_prerequisites --no-graphite) >prereq.log 2>&1 || fail prereq
 
 mkdir -p b-gcc && cd b-gcc
@@ -149,7 +178,7 @@ mkdir -p b-gcc && cd b-gcc
     --disable-shared --disable-threads --disable-tls --disable-libssp \
     --disable-libgomp --disable-libquadmath --disable-libffi --disable-libstdcxx \
     --disable-decimal-float --enable-checking=release --without-isl \
-    --with-static-standard-libraries --with-gnu-as --with-gnu-ld \
+    $static_std --with-gnu-as --with-gnu-ld \
     MAKEINFO=true >"$w/configure.log" 2>&1 || fail configure
 make -j"$j" MAKEINFO=true all-gcc all-target-libgcc >"$w/make.log" 2>&1 || fail make
 make MAKEINFO=true install-strip-gcc install-target-libgcc >"$w/install.log" 2>&1 || fail install
@@ -179,8 +208,9 @@ function install()
     os.tryrm(prefix)
     io.writefile(script, build_sh)
     log.info("building arm-none-eabi-gcc %s (logs: %s)", pkginfo.version(), workdir)
+    local sysroot = is_host("linux") and system.subos_sysrootdir() or "-"
     system.exec(string.format("bash %s %s %s %s %s %s",
-        script, srcdir, prefix, workdir, system.subos_sysrootdir(), binutils.path))
+        script, srcdir, prefix, workdir, sysroot, binutils.path))
 
     -- The driver finds as/ld in <prefix>/arm-none-eabi/bin and cc1 under libexec,
     -- relative to itself; a payload missing either installs cleanly and fails at

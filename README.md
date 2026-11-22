@@ -21,7 +21,20 @@ tools/fromsource.sh arm-none-eabi-gcc 14.2.0 out
 # 没有 docker：在本机构建（需要 m4、perl、tar、bzip2、xz、wget）
 FROMSOURCE_MODE=host FROMSOURCE_HOST_TOOLS=<含 m4/bzip2/xz 的目录> \
     tools/fromsource.sh arm-none-eabi-gcc 14.2.0 out
+
+# Windows（x86_64）：在 x86_64 Linux 上交叉构建 fromsource:arm-none-eabi-gcc-mingw-cross，
+# 产物为 .zip（另需 zip）；检查在 Windows 上运行（CI 的 check job）
+tools/fromsource.sh --host windows arm-none-eabi-gcc 14.2.0 out
+
+# macOS（Apple Silicon）：在 Mac 上用 Xcode 的 clang 构建（需要 Xcode 命令行工具与 GNU tar：brew install gnu-tar）
+FROMSOURCE_WORK=/Users/Shared/fromsource-w tools/fromsource.sh arm-none-eabi-gcc 14.2.0 out
 ```
+
+| 平台 | 构建方式 | payload |
+|---|---|---|
+| Linux x86_64 / aarch64 | 固定的 Debian 容器，xim:gcc + xim:glibc | `<name>-<ver>-linux-<arch>.tar.gz` |
+| Windows x86_64 | 同一容器内用 xim:mingw-cross-gcc 交叉构建（Canadian cross）；libgcc 取自 Linux 构建 | `<name>-<ver>-windows-x86_64.zip` |
+| macOS aarch64 | Apple Silicon runner，Xcode clang，`MACOSX_DEPLOYMENT_TARGET=11.0` | `<name>-<ver>-macosx-aarch64.tar.gz` |
 
 ## 直接作为 fromsource 索引使用
 
