@@ -376,9 +376,27 @@ xim-pkgindex，由上游 res-build 重建并发布到 xlings-res，xim 配方切
 
 - macOS 构建（本地无 Mac），由 CI 首次验证；Windows 产物在真实 Windows 上的检查由 CI `check` job 首次验证。
 - macOS 产物的逐字节可复现性尚未用两次同一 commit 的构建核对。
-- **Windows 产物尚不可复现**：同为 b01941d 的 run 45001482719 与 45107607496 得到 `0abc0dc3…` 与 `90d12207…`。只有 3 个文件不同：
-  `liblto_plugin.dll.a`（ld `--out-implib` 在 ar 成员头写入时间；运行时不需要，可从 payload 删除）；`cc1.exe` / `cc1plus.exe`
-  各 18 字节：PE 校验和 + cc1 内嵌的、覆盖其链接输入的 MD5——mingw 构建中仍有某个宿主侧输入不确定，待查。
+- Windows 产物尚不可逐字节复现：见 8.4 已知限制 L1。
 - 已发布（run 45107607496，b01941d）：Release `arm-none-eabi-gcc-14.2.0` 新增 `windows-x86_64.zip`（`90d12207…`）与 `macosx-aarch64.tar.gz`（`4d984923…`），
   Linux 资产保留首次发布的字节（新依赖下的重建字节不同，按设计不覆盖）。xim 配方已加 `windows` / `macosx` 段（`source` 改为按平台），
   在全新 home 中用该配方安装 Linux x86_64 版通过；Windows / macOS 上的 xim 安装尚未实测。
+
+### 8.4 已知限制（2026-11-23）
+
+**L1. Windows payload 不能逐字节复现**（暂不修复，之后处理）
+
+- 现象：同一 commit（b01941d）的两次构建 run 45001482719 与 45107607496 得到 `0abc0dc3…` 与 `90d12207…`（后者已发布）。
+  解压后只有 3 个文件不同：
+  - `libexec/gcc/arm-none-eabi/14.2.0/liblto_plugin.dll.a`：5 字节，在 ar 成员头的 mtime 字段——ld `--out-implib` 写入当前时间。
+  - `cc1.exe`、`cc1plus.exe`：各 18 字节——PE 头校验和（2 字节）与一段连续 16 字节，位置和长度与 cc1 内嵌的、覆盖其链接输入的
+    MD5（executable checksum）相符。说明 mingw 交叉构建中仍有某个宿主侧链接输入不确定（Linux 上同类问题由 ar 包装解决），尚未定位。
+- 对用户的影响（评估于 2026-11-23）：
+  - 安装内容：无。xim 配方按 sha256 锁定已发布的那一份，所有用户得到相同字节。
+  - 生成的固件：无。不同的字节不是机器码，也不写入用户的 `.o` / `.elf`（依据为字节比对；未在 Windows 上用两份 cc1 实际编译对照）。
+  - 预编译头：该校验和用于校验 `.gch`。只有在不同修订的 Windows 资产之间共享 `.gch` 时才会被拒绝并回退到 `.h`（变慢，不出错）。
+  - 独立验证：用户无法自行重建并比对 Windows 产物的字节（Linux 可以）。
+- 修复方向：
+  1. 从 payload 删除 `liblto_plugin.dll.a`（运行时不需要）。
+  2. 复用同一个 xlings home（`FROMSOURCE_HOME`）连续构建两次 `arm-none-eabi-gcc-mingw-cross`（`FROMSOURCE_KEEP=1` 保留构建目录），
+     比对两次构建树中参与 cc1 链接的 `.a` / `.o`，找出不确定的输入并在配方中消除。
+  3. 修复后的构建作为 Windows 资产的新 revision 发布（已发布的资产不覆盖），并更新 xim 配方的 sha256。

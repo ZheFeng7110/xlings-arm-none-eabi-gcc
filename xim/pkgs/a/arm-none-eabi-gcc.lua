@@ -87,6 +87,10 @@ package = {
             },
         },
         -- Added to the same release by build run 45107607496 of b01941d.
+        -- ⚠️ Known limitation: the Windows payload does not rebuild to the same bytes
+        -- yet (cc1/cc1plus's embedded checksum and an import library's timestamp;
+        -- not the code they generate). This hash pins the published one; a fixed
+        -- build will be a new revision. See .agents/docs/...-design.md, 8.4 L1.
         windows = {
             source = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/${name}-${version}/${name}-${version}-windows-${arch}.zip",
             ["latest"] = { ref = "14.2.0" },

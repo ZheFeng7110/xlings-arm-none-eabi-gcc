@@ -12,6 +12,9 @@
 
 设计记录见 [.agents/docs/2026-11-18-fromsource-to-xim-design.md](.agents/docs/2026-11-18-fromsource-to-xim-design.md)。
 
+已知限制：Windows payload 目前不能逐字节复现（同一 commit 两次构建有 3 个文件不同，不影响安装内容与生成的代码），
+详见设计记录 8.4 节。
+
 ## 本地构建
 
 ```bash
