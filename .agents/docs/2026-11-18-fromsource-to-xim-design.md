@@ -375,5 +375,10 @@ xim-pkgindex，由上游 res-build 重建并发布到 xlings-res，xim 配方切
 ### 8.3 尚未验证
 
 - macOS 构建（本地无 Mac），由 CI 首次验证；Windows 产物在真实 Windows 上的检查由 CI `check` job 首次验证。
-- Windows / macOS 产物的逐字节可复现性尚未用两次构建核对。
-- xim 配方的 `windows` / `macosx` 段待 CI 构建并发布后填写 sha256（`${ext}` 在 Windows 上为 zip，install() 需相应去掉 `.zip`）。
+- macOS 产物的逐字节可复现性尚未用两次同一 commit 的构建核对。
+- **Windows 产物尚不可复现**：同为 b01941d 的 run 45001482719 与 45107607496 得到 `0abc0dc3…` 与 `90d12207…`。只有 3 个文件不同：
+  `liblto_plugin.dll.a`（ld `--out-implib` 在 ar 成员头写入时间；运行时不需要，可从 payload 删除）；`cc1.exe` / `cc1plus.exe`
+  各 18 字节：PE 校验和 + cc1 内嵌的、覆盖其链接输入的 MD5——mingw 构建中仍有某个宿主侧输入不确定，待查。
+- 已发布（run 45107607496，b01941d）：Release `arm-none-eabi-gcc-14.2.0` 新增 `windows-x86_64.zip`（`90d12207…`）与 `macosx-aarch64.tar.gz`（`4d984923…`），
+  Linux 资产保留首次发布的字节（新依赖下的重建字节不同，按设计不覆盖）。xim 配方已加 `windows` / `macosx` 段（`source` 改为按平台），
+  在全新 home 中用该配方安装 Linux x86_64 版通过；Windows / macOS 上的 xim 安装尚未实测。

@@ -28,10 +28,14 @@
 -- `-print-multi-lib`. A compiler with another list is a new version here, never a
 -- rebuild of this one.
 --
--- Linux only for now: the resource factory runs on Linux runners (x86_64, aarch64).
--- The host programs are built by xim:gcc against xim:glibc and need glibc alone (the
--- export checks it, and resets INTERP/RPATH); elfpatch puts them on xim:glibc at
--- install time.
+-- Hosts (each payload's README.provenance says how it was made):
+--   linux x86_64/aarch64  built by xim:gcc against xim:glibc; the host programs need
+--                         glibc alone (the export checks it, and resets INTERP/RPATH);
+--                         elfpatch puts them on xim:glibc at install time
+--   windows x86_64        cross-built on Linux (fromsource:arm-none-eabi-gcc-mingw-cross),
+--                         linked statically: Windows' own DLLs only; a .zip
+--   macosx aarch64        built by Xcode's clang: system libraries only, macOS 11+
+-- The target code (libgcc) is the same bytes in all of them.
 package = {
     spec = "2",
     homepage = "https://gcc.gnu.org/",
@@ -66,8 +70,8 @@ package = {
     -- releases until it moves to xlings-res (then: source = "xlings-res"; the bytes,
     -- and so the hashes, stay the same).
     xpm = {
-        source = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/${name}-${version}/${name}-${version}-linux-${arch}.tar.gz",
         linux = {
+            source = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/${name}-${version}/${name}-${version}-linux-${arch}.tar.gz",
             deps = {
                 runtime = { "xim:glibc@>=2.39" },
                 build = { "xim:patchelf@0.18.0" },
@@ -82,6 +86,25 @@ package = {
                 },
             },
         },
+        -- Added to the same release by build run 45107607496 of b01941d.
+        windows = {
+            source = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/${name}-${version}/${name}-${version}-windows-${arch}.zip",
+            ["latest"] = { ref = "14.2.0" },
+            ["14.2.0"] = {
+                sha256 = {
+                    x86_64 = "90d1220740b75a91556e2bdbe2df9e3e42af5908fe5c249f8a66359936ab2cc8",
+                },
+            },
+        },
+        macosx = {
+            source = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/${name}-${version}/${name}-${version}-macosx-${arch}.tar.gz",
+            ["latest"] = { ref = "14.2.0" },
+            ["14.2.0"] = {
+                sha256 = {
+                    aarch64 = "4d984923cc0f3967edfdfc529509c1310a9aeb27ec15fa82da803ef8b693bfb2",
+                },
+            },
+        },
     },
 }
 
@@ -89,8 +112,8 @@ import("xim.libxpkg.pkginfo")
 import("xim.libxpkg.xvm")
 
 function install()
-    -- The archive's one directory, arm-none-eabi-gcc-<version>-linux-<arch>, is the prefix.
-    local top = pkginfo.install_file():replace(".tar.gz", "")
+    -- The archive's one directory, arm-none-eabi-gcc-<version>-<os>-<arch>, is the prefix.
+    local top = pkginfo.install_file():replace(".tar.gz", ""):replace(".zip", "")
     if not os.isdir(top) then
         raise("arm-none-eabi-gcc payload not found at " .. top)
     end
@@ -100,10 +123,12 @@ function install()
     -- libexec, relative to itself; a payload missing either installs cleanly
     -- and fails at the first compile.
     local libexec = "libexec/gcc/arm-none-eabi/" .. pkginfo.version()
+    local exe = is_host("windows") and ".exe" or ""
     for _, f in ipairs({
         "bin/arm-none-eabi-gcc", "arm-none-eabi/bin/as", "arm-none-eabi/bin/ld",
         libexec .. "/cc1", libexec .. "/cc1plus",
     }) do
+        f = f .. exe
         if not os.isfile(path.join(pkginfo.install_dir(), f)) then
             raise("arm-none-eabi-gcc payload is missing " .. f)
         end
