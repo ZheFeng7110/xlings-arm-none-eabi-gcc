@@ -10,7 +10,27 @@
 - `xim/pkgs/` —— 指向本仓库 Release 的 xim 配方
 - `.github/workflows/build.yml` —— CI 构建与发布
 
-设计记录见 [.agents/docs/2026-11-18-fromsource-to-xim-design.md](.agents/docs/2026-11-18-fromsource-to-xim-design.md)。
+设计记录：
+[编译器与打包流水线](.agents/docs/2026-11-18-fromsource-to-xim-design.md)、
+[newlib 与 libstdc++](.agents/docs/2026-11-26-newlib-libstdcxx-design.md)。
+
+## 包
+
+| 包 | 内容 | payload |
+|---|---|---|
+| `arm-none-eabi-gcc@14.2.0` | GCC 14.2.0（C、C++）+ binutils 2.43.1，不含 C 库（只有 libgcc），29 个 rmprofile multilib | 每个宿主一个 |
+| `newlib-arm-none-eabi@4.5.0.20241231` | newlib + newlib-nano 的 sysroot，Arm GNU Toolchain 的文件名（`nano.specs`、`nosys.specs`、`rdimon.specs`） | 一个，四个平台通用 |
+| `libstdcxx-newlib-arm-none-eabi@14.2.0` | 上面的 newlib sysroot，加上 libstdc++ / libsupc++（完整版 + `_nano`） | 一个，四个平台通用 |
+
+C 库与 libstdc++ 是 sysroot，用 `--sysroot` 选择（需要编译器 14.2.0 revision 1 及以后）：
+
+```bash
+# C
+arm-none-eabi-gcc --sysroot=<newlib-arm-none-eabi>/arm-none-eabi \
+    -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard --specs=nano.specs --specs=nosys.specs ...
+# C 与 C++
+arm-none-eabi-g++ --sysroot=<libstdcxx-newlib-arm-none-eabi>/arm-none-eabi ...
+```
 
 已知限制：Windows payload 目前不能逐字节复现（同一 commit 两次构建有 3 个文件不同，不影响安装内容与生成的代码），
 详见设计记录 8.4 节。
@@ -20,6 +40,13 @@
 ```bash
 # 有 docker：在固定的 Debian 镜像中构建
 tools/fromsource.sh arm-none-eabi-gcc 14.2.0 out
+
+# 已发布版本的重建（修订）：payload 名带 -r1
+tools/fromsource.sh --revision 1 arm-none-eabi-gcc 14.2.0 out
+
+# 目标代码（C 库、libstdc++）：一个与宿主无关的 payload；检查会用 xlings 安装 xim:qemu-arm
+tools/fromsource.sh --data newlib-arm-none-eabi 4.5.0.20241231 out
+tools/fromsource.sh --data libstdcxx-newlib-arm-none-eabi 14.2.0 out
 
 # 没有 docker：在本机构建（需要 m4、perl、tar、bzip2、xz、wget）
 FROMSOURCE_MODE=host FROMSOURCE_HOST_TOOLS=<含 m4/bzip2/xz 的目录> \
