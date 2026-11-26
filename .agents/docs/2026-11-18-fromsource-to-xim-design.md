@@ -1,6 +1,3 @@
-| （CI）容器里 mingw 编译器 “cannot create executables”：xim:mingw-cross-gcc 不声明 glibc 依赖、用宿主 glibc，需要 2.38 与 libzstd.so.1，Debian 12 只有 2.36 | Windows 交叉工厂改用固定 digest 的 Debian 13 镜像（glibc 2.41）；Linux payload 仍用 Debian 12（其 glibc 基线由 xim:glibc 决定，与镜像无关） |
-| （CI）xim:gcc@16.2.0 发布了 revision 1，产生 `.base64` / `.aeabi_subsection`，固定的 xim:binutils@2.42.1 的 as 不认 | 构建依赖改为 xim:binutils@2.47 |
-| （CI）macOS：binutils 自带 zlib 的 zutil.h 定义了 fdopen，与 Xcode 16.4 SDK 的声明冲突 | macOS 用 `--with-system-zlib`（/usr/lib/libz.dylib） |
 # arm-none-eabi 工具链：fromsource 构建 → 打包 → xlings-res → xim 设计记录
 
 > 日期：2026-11-17 ~ 2026-11-18
@@ -368,6 +365,9 @@ xim-pkgindex，由上游 res-build 重建并发布到 xlings-res，xim 配方切
 | Canadian cross 时 `gcc/build.*` 子 configure 的测试程序不能运行：不使用 `LDFLAGS_FOR_BUILD`，且 SubOS 没有 libstdc++ | loader、rpath、`-static-libstdc++ -static-libgcc` 直接写进 `CC_FOR_BUILD` / `CXX_FOR_BUILD`；`LD_FOR_BUILD=ld LDFLAGS_FOR_BUILD=""`（否则默认取 mingw 的） |
 | binutils 程序导入 `libwinpthread-1.dll` | libtool 会删掉任何位置的 `-static`；改为在 CC 中写 `--static`（GCC 视为同义，libtool 不识别而原样传递） |
 | 所有 PE 都带构建时间：`install-strip` 时 strip 重写 PE 头 | `SOURCE_DATE_EPOCH=0`（ld 另有 `--no-insert-timestamp`） |
+| （CI）容器里 mingw 编译器 “cannot create executables”：xim:mingw-cross-gcc 不声明 glibc 依赖、用宿主 glibc，需要 2.38 与 libzstd.so.1，Debian 12 只有 2.36 | Windows 交叉工厂改用固定 digest 的 Debian 13 镜像（glibc 2.41）；Linux payload 仍用 Debian 12（其 glibc 基线由 xim:glibc 决定，与镜像无关） |
+| （CI）xim:gcc@16.2.0 发布了 revision 1，产生 `.base64` / `.aeabi_subsection`，固定的 xim:binutils@2.42.1 的 as 不认 | 构建依赖改为 xim:binutils@2.47 |
+| （CI）macOS：binutils 自带 zlib 的 zutil.h 定义了 fdopen，与 Xcode 16.4 SDK 的声明冲突 | macOS 用 `--with-system-zlib`（/usr/lib/libz.dylib） |
 
 结果：`fromsource:arm-none-eabi-gcc-mingw-cross@14.2.0` 构建通过，45 个 PE 程序只导入 KERNEL32 / msvcrt / ADVAPI32，
 时间戳为 0；29 个 multilib 的 libgcc.a 齐全；zip 约 95 MB。新增 `FROMSOURCE_KEEP=1`：失败时保留构建目录以便查看 `config.log`。
