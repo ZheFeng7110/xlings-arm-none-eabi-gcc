@@ -9,7 +9,8 @@
 -- same for every host, so it is COPIED from fromsource:arm-none-eabi-gcc (the
 -- Linux build of this version) -- as Arm's own Windows toolchain is made. The
 -- target libraries are therefore the same bytes on every host, and the multilib
--- set (rmprofile) is the one the C library packages are built for.
+-- set (rmprofile) is the one the C library packages are built for. So are the
+-- limits.h fromsource:arm-none-eabi-gcc regenerates.
 --
 -- The programs are compiled by xim:mingw-cross-gcc, linked statically, so they
 -- need only Windows' own DLLs; --no-insert-timestamp: a PE header records no build
@@ -133,6 +134,7 @@ mkdir -p b-gcc && cd b-gcc
     --prefix="$prefix" --with-sysroot="$prefix/$target" \
     --with-pkgversion=xlings-fromsource --disable-nls --disable-werror --without-zstd \
     --with-native-system-header-dir=/include --with-multilib-list=rmprofile \
+    --with-gxx-include-dir="$prefix/$target/include/c++/$version" \
     --enable-languages=c,c++ --without-headers --with-newlib \
     --disable-shared --disable-threads --disable-tls --disable-libssp \
     --disable-libgomp --disable-libquadmath --disable-libffi --disable-libstdcxx \
@@ -149,6 +151,13 @@ n="$native/lib/gcc/$target/$version"; d="$prefix/lib/gcc/$target/$version"
 (cd "$n" && find . -type f) | while IFS= read -r f; do
     [[ -e "$d/$f" ]] && continue
     mkdir -p "$(dirname "$d/$f")"; cp -p "$n/$f" "$d/$f"
+done
+
+# limits.h as fromsource:arm-none-eabi-gcc regenerates it (see there), and its
+# syslimits.h: the same headers on every host.
+for h in limits.h syslimits.h; do
+    [[ -f "$n/include/$h" ]] || { echo "[arm-none-eabi-gcc-mingw-cross] no include/$h in $n" >&2; exit 1; }
+    cp -p "$n/include/$h" "$d/include/$h"
 done
 
 # Not built (MAKEINFO=true) or naming the build prefix.

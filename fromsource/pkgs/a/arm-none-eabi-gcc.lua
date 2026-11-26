@@ -22,6 +22,18 @@
 --   --without-headers --with-newlib   no C library at build time; libgcc is built
 --       with inhibit_libc. Consequence: no libgcov (`--coverage` does not link).
 --
+--   --with-gxx-include-dir=<prefix>/arm-none-eabi/include/c++/<version>   under the
+--       sysroot, so GCC records it RELATIVE to the sysroot: `--sysroot=<a C/C++
+--       library package>/arm-none-eabi` finds that package's C++ headers. (By
+--       default they are looked for under the compiler's own prefix, whatever the
+--       sysroot -- where no other package can put them.)
+--
+--   limits.h, regenerated after the install: built without a C library's headers,
+--       GCC installs a limits.h that never includes the C library's (no PATH_MAX,
+--       MB_LEN_MAX 1, with newlib selected). It is rebuilt as a build with headers
+--       makes it, the include_next that reaches the C library's (limity.h's)
+--       guarded by __has_include_next, so it also works with no C library at all.
+--
 --   --with-static-standard-libraries, --without-zstd, in-tree gmp/mpfr/mpc: the
 --       host programs need glibc and nothing else (on macOS: the system's libraries).
 --
@@ -112,6 +124,7 @@ src="$1"; prefix="$2"; w="$3"; S="$4"; binutils="$5"
 target=arm-none-eabi
 j="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN)"
 darwin=false; [[ "$(uname -s)" == Darwin ]] && darwin=true
+version="$(cat "$src/gcc/BASE-VER")"
 
 # gnu17/gnu++17: GCC 14 and its gmp predate C23, which GCC 15+ defaults to.
 export CFLAGS="-O2" CXXFLAGS="-O2"
@@ -178,6 +191,7 @@ mkdir -p b-gcc && cd b-gcc
 "$src/configure" --target=$target --prefix="$prefix" --with-sysroot="$prefix/$target" \
     --with-pkgversion=xlings-fromsource --disable-nls --disable-werror --without-zstd $zlib \
     --with-native-system-header-dir=/include --with-multilib-list=rmprofile \
+    --with-gxx-include-dir="$prefix/$target/include/c++/$version" \
     --enable-languages=c,c++ --without-headers --with-newlib \
     --disable-shared --disable-threads --disable-tls --disable-libssp \
     --disable-libgomp --disable-libquadmath --disable-libffi --disable-libstdcxx \
@@ -186,6 +200,19 @@ mkdir -p b-gcc && cd b-gcc
     MAKEINFO=true >"$w/configure.log" 2>&1 || fail configure
 make -j"$j" MAKEINFO=true all-gcc all-target-libgcc >"$w/make.log" 2>&1 || fail make
 make MAKEINFO=true install-strip-gcc install-target-libgcc >"$w/install.log" 2>&1 || fail install
+
+# limits.h as a build with a C library's headers makes it: limitx.h + glimits.h +
+# limity.h. Its first pass includes syslimits.h, whose include_next comes back to
+# this limits.h (syslimits.h was found by "...", not on the search path); the
+# second pass's include_next, in limity.h, is the one that reaches the C
+# library's. That one is guarded: with no C library there is none to reach.
+# libgcc was built before this, with the tree's own headers: its bytes do not change.
+inc="$prefix/lib/gcc/$target/$version/include"
+[[ -f "$inc/limits.h" && -f "$inc/syslimits.h" ]] || { echo "[arm-none-eabi-gcc] no limits.h in $inc" >&2; exit 1; }
+{ cat "$src/gcc/limitx.h" "$src/gcc/glimits.h"
+  awk '/^#include_next <limits\.h>/ { n++; print "#if __has_include_next(<limits.h>)"; print; print "#endif"; next }
+       { print } END { if (n != 1) exit 1 }' "$src/gcc/limity.h"
+} > "$inc/limits.h" || { echo "[arm-none-eabi-gcc] limity.h is not the one this recipe guards" >&2; exit 1; }
 
 # Not built (MAKEINFO=true) or naming the build prefix.
 rm -rf "$prefix/share/info" "$prefix/share/man"

@@ -11,7 +11,7 @@ p="$1"; version="$2"
 readelf="${READELF:-$p/bin/arm-none-eabi-readelf}"
 die() { printf '[check arm-none-eabi-gcc] %s\n' "$*" >&2; exit 1; }
 g="$p/bin/arm-none-eabi-gcc"
-t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
+t="$(mktemp -d)"; trap 'cd /; rm -rf "$t"' EXIT
 # What a program prints, without the CR a Windows program ends its lines with.
 out() { "$@" | tr -d '\r'; }
 
@@ -58,3 +58,21 @@ CC
 "$p/bin/arm-none-eabi-g++" -std=c++20 -ffreestanding -fno-exceptions -fno-rtti -mcpu=cortex-m4 -mthumb \
     -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c "$t/k.cc" -o "$t/k.o" || die "a freestanding C++20 compile failed"
 out "$readelf" -A "$t/k.o" | grep -q 'Tag_ABI_VFP_args: VFP registers' || die "cortex-m4 -mfloat-abi=hard is not the VFP-register ABI"
+
+# What a C/C++ library package, selected with --sysroot, relies on. The sysroot
+# is a relative path, so nothing here is a path Git Bash would rewrite on Windows.
+cd "$t"
+mkdir -p "sr/include/c++/$version"
+# limits.h without a C library: the C standard's limits, and no error from the
+# include of the C library's one that is not there.
+printf '#include <limits.h>\n#if INT_MAX != 2147483647 || CHAR_BIT != 8 || LLONG_MAX != 9223372036854775807LL\n#error\n#endif\nint x;\n' > l.c
+"$g" -mcpu=cortex-m0 -mthumb -c l.c -o l.o || die "<limits.h> does not work without a C library"
+# ... and with one, it includes the C library's (newlib's has PATH_MAX, MB_LEN_MAX).
+printf '#define XLINGS_LIBC_LIMITS_H 1\n' > sr/include/limits.h
+printf '#include <limits.h>\n#ifndef XLINGS_LIBC_LIMITS_H\n#error\n#endif\nint x;\n' > n.c
+"$g" --sysroot=sr -mcpu=cortex-m0 -mthumb -c n.c -o n.o || die "<limits.h> does not include the C library's limits.h"
+# The C++ headers are looked for in the sysroot: a libstdc++ package is one.
+printf '#define XLINGS_CXX_PROBE 1\n' > "sr/include/c++/$version/xlings_probe.h"
+printf '#include <xlings_probe.h>\nstatic_assert(XLINGS_CXX_PROBE == 1);\n' > c.cc
+"$p/bin/arm-none-eabi-g++" --sysroot=sr -std=c++17 -mcpu=cortex-m0 -mthumb -fsyntax-only c.cc \
+    || die "the C++ headers are not looked for in <sysroot>/include/c++/$version"
