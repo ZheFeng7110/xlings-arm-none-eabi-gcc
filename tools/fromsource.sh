@@ -2,10 +2,13 @@
 # Build a fromsource package with xlings and turn what it installed into an
 # xlings-res payload an xim recipe can point at.
 #
-#   tools/fromsource.sh [--data] [--host windows] <name> <version> <out>
+#   tools/fromsource.sh [--data] [--host windows] [--revision N] <name> <version> <out>
 #
 #   --data          target code / data, the same for every host: one archive named
 #                   <name>-<version>.tar.gz (otherwise <name>-<version>-<os>-<arch>.tar.gz)
+#   --revision N    the Nth rebuild of a published version (a fix of ours, the same
+#                   upstream source): the payload is <name>-<version>-rN... and its
+#                   release <name>-<version>-rN; a published asset never changes
 #   --host windows  the Windows payload <name>-<version>-windows-x86_64.zip, from
 #                   fromsource:<name>-mingw-cross: a recipe that cross-builds on Linux
 #                   (x86_64) what runs on Windows. Its checks run on Windows
@@ -14,7 +17,10 @@
 # Steps: a pinned xlings in a fresh XLINGS_HOME, this repository's fromsource/ as
 # the `fromsource` index, `xlings install fromsource:<name>@<version>`, then the
 # installed tree is copied out, checked (tools/checks/<name>.sh, run on the copy,
-# so relocation is exercised), normalized, scanned for the build home, and packed
+# so relocation is exercised; a check's `# needs: <ns:pkg@ver>` lines are installed
+# by the same xlings first and put on its PATH, and FROMSOURCE_XPKGS names the
+# home's package store, where it finds what the package was built with),
+# normalized, scanned for the build home, and packed
 # reproducibly with a .sha256 and README.provenance. Normalized, per host:
 #   linux    host ELFs get the system loader and no RPATH (xim's install-time
 #            elfpatch binds them to xim:glibc); they may need glibc alone
@@ -54,15 +60,18 @@ log() { printf '[fromsource] %s\n' "$*" >&2; }
 die() { log "$*"; exit 1; }
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
 
-kind=binary; target_os=""
+kind=binary; target_os=""; revision=""
 while [[ "${1:-}" == --* ]]; do
     case "$1" in
         --data) kind=data; shift ;;
         --host) target_os="${2:-}"; shift 2 ;;
+        --revision) revision="${2:-}"; shift 2
+            [[ "$revision" =~ ^[1-9][0-9]*$ ]] || die "--revision: a positive integer (got '$revision')" ;;
         *) die "unknown option $1" ;;
     esac
 done
-[[ $# -eq 3 ]] || die "usage: $0 [--data] [--host windows] <name> <version> <out>"
+[[ $# -eq 3 ]] || die "usage: $0 [--data] [--host windows] [--revision N] <name> <version> <out>"
+rev=""; [[ -n "$revision" ]] && rev="-r$revision"   # in the payload's name
 name="$1"; version="$2"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$3"; out="$(cd "$3" && pwd)"
@@ -97,6 +106,7 @@ if [[ "$mode" == container ]]; then
     image="$DEBIAN"; pkgs="$HOST_PKGS"
     [[ "$target_os" == windows ]] && { image="$DEBIAN_MINGW"; pkgs="$pkgs zip"; }
     opts=""; [[ "$kind" == data ]] && opts="--data"; [[ "$target_os" != linux ]] && opts="$opts --host $target_os"
+    [[ -n "$revision" ]] && opts="$opts --revision $revision"
     log "$recipe_name $version in $image"
     docker run --rm -v "$repo:/src:ro" -v "$out:/out" -e DEBIAN_FRONTEND=noninteractive \
         -e FROMSOURCE_MODE=inner -e FROMSOURCE_COMMIT="$commit" -e XLINGS_VERSION \
@@ -202,19 +212,32 @@ fi
 [[ "$target_os" == windows ]] && objdump="$(tool mingw-cross-gcc x86_64-w64-mingw32-objdump)"
 
 # --- the payload: a copy, checked where it now lives --------------------------
-if [[ "$kind" == data ]]; then d="$name-$version"; file="$name-$version.tar.gz"
-elif [[ "$target_os" == windows ]]; then d="$name-$version-windows-x86_64"; file="$d.zip"
-else d="$name-$version-$target_os-$arch"; file="$d.tar.gz"; fi
+if [[ "$kind" == data ]]; then d="$name-$version$rev"; file="$d.tar.gz"
+elif [[ "$target_os" == windows ]]; then d="$name-$version$rev-windows-x86_64"; file="$d.zip"
+else d="$name-$version$rev-$target_os-$arch"; file="$d.tar.gz"; fi
 payload="$work/$d"
 cp -a "$installed" "$payload"
 
 check="$repo/tools/checks/$name.sh"
+needs=""
 if [[ "$target_os" != "$build_os" ]]; then
     log "checks: tools/checks/$name.sh runs on $target_os (build.yml), not here"
 elif [[ -f "$check" ]]; then
-    log "checks: tools/checks/$name.sh"
+    # What the check runs with (`# needs: xim:qemu-arm@9.2.4-1`): from the index,
+    # by this xlings, like everything else the build used.
+    needs="$(sed -n 's/^# needs:[[:space:]]*//p' "$check" | tr '\n' ' ' | sed 's/ *$//')"
+    check_path=""
+    for n in $needs; do
+        [[ "$n" =~ ^([a-z0-9_-]+):([A-Za-z0-9._+-]+)@([A-Za-z0-9._+-]+)$ ]] || die "tools/checks/$name.sh: '# needs: $n' is not <ns>:<pkg>@<version>"
+        xlings install -y --agent "$n" >"$work/needs.log" 2>&1 || { cat "$work/needs.log" >&2; die "xlings install $n (for the checks) failed"; }
+        bin="$home/data/xpkgs/${BASH_REMATCH[1]}-x-${BASH_REMATCH[2]}/${BASH_REMATCH[3]}/bin"
+        [[ -d "$bin" ]] || die "$n installed no $bin"
+        check_path="$bin:$check_path"
+    done
+    log "checks: tools/checks/$name.sh${needs:+ (with $needs)}"
     # On Linux the copy still has xlings' INTERP/RPATH, so its programs run here.
-    READELF="$readelf" bash "$check" "$payload" "$version" || die "tools/checks/$name.sh failed"
+    PATH="$check_path$PATH" READELF="$readelf" FROMSOURCE_XPKGS="$home/data/xpkgs" \
+        bash "$check" "$payload" "$version" || die "tools/checks/$name.sh failed"
 else
     log "no tools/checks/$name.sh: only the generic checks run"
 fi
@@ -307,6 +330,7 @@ windows)
     ;;
 esac
 [[ "$kind" == data || "$host_bins" -gt 0 ]] || die "a binary payload with no host program: is this --data?"
+[[ "$kind" == data && "$host_bins" -eq 0 ]] && normalized="no host programs (target code only)"
 
 # The build home must not survive anywhere but in a host program: in a text file
 # (a .pc, a .la, a specs file) it is a path that exists on nobody's machine, and
@@ -326,13 +350,16 @@ elif [[ "$build_os" == macosx ]]; then
     factory="host mode on $(sw_vers -productName) $(sw_vers -productVersion) $(uname -m), $(xcrun clang --version | head -1), SDK $(xcrun --show-sdk-version)$reused"
 else factory="host mode on $(uname -srm)$reused"; fi
 built_by="xlings $XLINGS_VERSION as fromsource:$recipe_name@$version"
+what="$name $version"; [[ -n "$revision" ]] && what="$what revision $revision"
 [[ "$target_os" != "$build_os" ]] && built_by="$built_by (cross-built on $build_os $arch for $target_os)"
 cat > "$payload/README.provenance" <<EOF
-$name $version, built from source by $built_by
+$what, built from source by $built_by
 recipe: fromsource/pkgs/${recipe#$repo/fromsource/pkgs/} (sha256 $(sha256 "$recipe" | cut -d' ' -f1)) at $commit of https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc
 dependencies: $deps
 factory: $factory
 normalized by tools/fromsource.sh: $normalized
+checked by: $(if [[ "$target_os" != "$build_os" ]]; then echo "tools/checks/$name.sh on $target_os (build.yml)"
+              elif [[ -f "$check" ]]; then echo "tools/checks/$name.sh${needs:+, with $needs}"; else echo "the generic checks only"; fi)
 EOF
 
 if [[ "$target_os" == windows ]]; then

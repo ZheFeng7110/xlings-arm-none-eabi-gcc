@@ -1,6 +1,8 @@
 [
-  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "os": "linux", "arch": "x86_64", "kind": "binary" },
-  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "os": "linux", "arch": "aarch64", "kind": "binary" },
-  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "os": "windows", "arch": "x86_64", "kind": "binary" },
-  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "os": "macosx", "arch": "aarch64", "kind": "binary" }
+  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "revision": 1, "os": "linux", "arch": "x86_64", "kind": "binary" },
+  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "revision": 1, "os": "linux", "arch": "aarch64", "kind": "binary" },
+  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "revision": 1, "os": "windows", "arch": "x86_64", "kind": "binary" },
+  { "what": "arm-none-eabi-gcc", "version": "14.2.0", "revision": 1, "os": "macosx", "arch": "aarch64", "kind": "binary" },
+  { "what": "newlib-arm-none-eabi", "version": "4.5.0.20241231", "os": "linux", "arch": "x86_64", "kind": "data" },
+  { "what": "libstdcxx-newlib-arm-none-eabi", "version": "14.2.0", "os": "linux", "arch": "x86_64", "kind": "data" }
 ]

@@ -9,10 +9,11 @@ name: build
 #   macosx   on an Apple Silicon runner, with Xcode's clang (host mode)
 # The artifacts are named as xim-pkgindex's res-build names its
 # (res-<what>-<version>-<arch>: one payload and its .sha256); a payload for another
-# OS than Linux has it before the arch (res-<what>-<version>-<os>-<arch>).
+# OS than Linux has it before the arch (res-<what>-<version>-<os>-<arch>). An entry
+# with a `revision` (a rebuild of a published version) builds <version>-r<N>.
 #
 # Publishing is a separate, explicit step (`release: true`): each payload is added
-# to this repository's release `<what>-<version>`; an asset already there is never
+# to this repository's release `<what>-<version>[-r<N>]`; an asset already there is never
 # replaced (a rebuild of a published version is a new revision, not new bytes).
 on:
   workflow_dispatch:
@@ -48,9 +49,13 @@ jobs:
       - name: Lua syntax
         run: for f in fromsource/pkgs/*/*.lua xim/pkgs/*/*.lua; do luac5.4 -p "$f"; done
       - name: Shell
-        run: shellcheck -S warning tools/*.sh tools/checks/*.sh
+        run: shellcheck -x -S warning tools/*.sh tools/checks/*.sh
       - name: Matrix
-        run: jq -e 'all(.[]; (.os | IN("linux", "windows", "macosx")) and (.arch | IN("x86_64", "aarch64")))' .github/build-matrix.json
+        run: |
+          jq -e 'all(.[]; (.os | IN("linux", "windows", "macosx")) and (.arch | IN("x86_64", "aarch64"))
+                  and (.kind | IN("binary", "data"))
+                  and (.revision == null or (.revision | type == "number" and . >= 1 and . == floor)))' \
+            .github/build-matrix.json
 
   plan:
     if: github.event_name == 'workflow_dispatch'
@@ -69,14 +74,15 @@ jobs:
           what="${ONLY%@*}"; version=""; [[ "$ONLY" == *@* ]] && version="${ONLY#*@}"
           m="$(jq -c --arg w "$what" --arg v "$version" --arg o "$OS" \
                 '[.[] | select(($w == "" or .what == $w) and ($v == "" or .version == $v) and ($o == "" or .os == $o))
-                      | . + { artifact: ("res-\(.what)-\(.version)-" + (if .os == "linux" then "" else "\(.os)-" end) + .arch) }]' \
+                      | . + { rev: (if .revision then "-r\(.revision)" else "" end) }
+                      | . + { artifact: ("res-\(.what)-\(.version)\(.rev)-" + (if .os == "linux" then "" else "\(.os)-" end) + .arch) }]' \
                 .github/build-matrix.json)"
           [[ "$m" != "[]" ]] || { echo "::error::nothing in build-matrix.json matches '$ONLY' (os '$OS')"; exit 1; }
           echo "matrix=$m" >> "$GITHUB_OUTPUT"
           echo "windows=$(jq -c '[.[] | select(.os == "windows")]' <<<"$m")" >> "$GITHUB_OUTPUT"
 
   build:
-    name: ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.os }} ${{ matrix.arch }})
+    name: ${{ matrix.what }} ${{ matrix.version }}${{ matrix.rev }} (${{ matrix.os }} ${{ matrix.arch }})
     needs: plan
     runs-on: ${{ matrix.os == 'macosx' && 'macos-15' || (matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04') }}
     timeout-minutes: 330
@@ -104,6 +110,7 @@ jobs:
           bash tools/fromsource.sh
           ${{ matrix.kind == 'data' && '--data' || '' }}
           ${{ matrix.os == 'windows' && '--host windows' || '' }}
+          ${{ matrix.revision && format('--revision {0}', matrix.revision) || '' }}
           ${{ matrix.what }} ${{ matrix.version }} out
       # The payload's own digest, where it is seen first. The artifact's digest on
       # the run page is upload-artifact's zip, which records upload times: it
@@ -111,7 +118,7 @@ jobs:
       - name: Payload digest
         run: |
           {
-            echo "### ${{ matrix.what }} ${{ matrix.version }} (${{ matrix.os }} ${{ matrix.arch }})"
+            echo "### ${{ matrix.what }} ${{ matrix.version }}${{ matrix.rev }} (${{ matrix.os }} ${{ matrix.arch }})"
             echo
             echo "| payload | bytes | sha256 |"
             echo "|---|---:|---|"
@@ -131,7 +138,7 @@ jobs:
   # A payload cross-built for Windows is checked where it runs: unpacked on a
   # Windows runner and given the same tools/checks/<what>.sh (in Git Bash).
   check:
-    name: check ${{ matrix.what }} ${{ matrix.version }} (windows ${{ matrix.arch }})
+    name: check ${{ matrix.what }} ${{ matrix.version }}${{ matrix.rev }} (windows ${{ matrix.arch }})
     needs: [plan, build]
     if: needs.plan.outputs.windows != '[]'
     runs-on: windows-2022
@@ -193,7 +200,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           row() { echo "| \`$meta\` | \`$n\` | \`$sha\` | $1 |" >> "$GITHUB_STEP_SUMMARY"; }
           for a in art/res-*; do
-            meta="${a#art/res-}"; meta="${meta%-*}"                  # <what>-<version>[-<os>]
+            meta="${a#art/res-}"; meta="${meta%-*}"                  # <what>-<version>[-r<N>][-<os>]
             case "$meta" in *-windows|*-macosx) meta="${meta%-*}" ;; esac
             for f in "$a"/*.tar.gz "$a"/*.zip; do
               [[ -f "$f" ]] || continue
