@@ -119,3 +119,47 @@ run mps2-an385 m3-nano.elf "libstdc++: c++10 12 3 0"
 run mps2-an386 m4-nano.elf "libstdc++: c++10 12 3 0"
 run mps2-an385 m3-full.elf "libstdc++: c++10 12 3 1"
 run mps2-an386 m4-full.elf "libstdc++: c++10 12 3 1"
+
+# std::filesystem works over the project's own POSIX functions (design 3.9: Arm's
+# libstdc++ returns "Function not implemented" for these). A project provides
+# them under their POSIX names -- newlib has none on arm; here, in memory. With
+# --gc-sections a link needs only what the operations used call: create_directory
+# mkdir, current_path getcwd and pathconf.
+cat > fsapp.cc <<'EOF'
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <system_error>
+#include <sys/stat.h>
+#include <unistd.h>
+static char made[32];
+extern "C" int mkdir(const char* path, mode_t)
+{
+    if (made[0]) { errno = EEXIST; return -1; }
+    std::strncpy(made, path, sizeof made - 1);
+    return 0;
+}
+extern "C" char* getcwd(char* buf, size_t size)
+{
+    const char* cwd = "/flash";
+    if (size <= std::strlen(cwd)) { errno = ERANGE; return nullptr; }
+    return std::strcpy(buf, cwd);
+}
+extern "C" long pathconf(const char*, int name)
+{
+    if (name != _PC_PATH_MAX) { errno = EINVAL; return -1; }
+    return 64;
+}
+int main()
+{
+    std::error_code ec, ec2;
+    bool created = std::filesystem::create_directory("logs", ec);
+    std::filesystem::path cwd = std::filesystem::current_path(ec2);
+    std::printf("fs: %d %d %s %s %d\n", created, ec.value(), made, cwd.c_str(), ec2.value());
+    return 0;
+}
+EOF
+"${cxx[@]}" -std=c++17 "${m4h[@]}" --specs=rdimon.specs -Wl,--gc-sections -T "$here/mps2.ld" -Wl,--no-warn-rwx-segments \
+    fsapp.cc vectors.c -o m4-fs.elf || die "std::filesystem over the project's mkdir/getcwd/pathconf does not link"
+run mps2-an386 m4-fs.elf "fs: 1 0 logs /flash 0"

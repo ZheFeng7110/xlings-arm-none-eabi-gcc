@@ -153,12 +153,22 @@ make MAKEINFO=true install-target-libstdc++-v3 >"$w/install.log" 2>&1 || fail in
 # nano: the same libraries again, -Os -fno-exceptions, against newlib-nano's
 # newlib.h -- put where newlib.h is for the pass (what nano.specs's
 # `-isystem =/include/newlib-nano` does for a user's compile), then put back.
+# It keeps the full one's time: libgcc's dependency files name newlib.h, and
+# all-target-libstdc++-v3 goes through libgcc first -- a newer newlib.h rebuilt
+# libgcc for every multilib, in parallel, and on 4 cores one of its .dep files
+# came out truncated ("missing separator"). libgcc is not rebuilt, or this fails.
 find "$target" -depth -type d -name 'libstdc++-v3' -exec rm -rf {} +
 cp -p "$root/include/newlib.h" "$w/newlib.h.full"
 cp "$root/include/newlib-nano/newlib.h" "$root/include/newlib.h"
+touch -r "$w/newlib.h.full" "$root/include/newlib.h"
+touch -r "$target/libgcc/libgcc.a" "$w/libgcc.stamp"
 nano_ok=true
 make -j"$j" MAKEINFO=true CFLAGS_FOR_TARGET="$nano" CXXFLAGS_FOR_TARGET="$nano -fno-exceptions" \
     all-target-libstdc++-v3 >"$w/nano-make.log" 2>&1 || nano_ok=false
+if [[ "$target/libgcc/libgcc.a" -nt "$w/libgcc.stamp" ]]; then
+    cp -p "$w/newlib.h.full" "$root/include/newlib.h"
+    echo "[libstdcxx-newlib-arm-none-eabi] the nano pass rebuilt libgcc (see $w/nano-make.log)" >&2; exit 1
+fi
 $nano_ok && { make MAKEINFO=true CFLAGS_FOR_TARGET="$nano" CXXFLAGS_FOR_TARGET="$nano -fno-exceptions" \
     DESTDIR="$w/nano" install-target-libstdc++-v3 >"$w/nano-install.log" 2>&1 || nano_ok=false; }
 cp -p "$w/newlib.h.full" "$root/include/newlib.h"
@@ -177,7 +187,7 @@ echo "[libstdcxx-newlib-arm-none-eabi] c++config.h, nano vs full: $(grep -c '^[<
 sed -n '1,40p' "$w/c++config-nano.diff"
 
 # Not part of a sysroot: gdb's pretty printers (they name the build prefix).
-rm -rf "$prefix/share" "$prefix/lib"
+rm -rf "${prefix:?}/share" "${prefix:?}/lib"
 find "$prefix" \( -name '*.la' -o -name '*-gdb.py' \) -delete
 ]==]
 

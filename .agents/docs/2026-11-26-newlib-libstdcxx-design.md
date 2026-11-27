@@ -288,8 +288,15 @@ current_path: '', ec=88 (Function not implemented)
 可以提供一个返回 `-1` 并设置 `errno = ENOSYS` 的同名函数。（附带一提：Arm 的工具链用 `--specs=nosys.specs` 链接
 `std::filesystem` 本身就会失败——`resize_file` 需要的 `truncate` 只有 rdimon 提供。）
 
-一个操作具体需要哪些符号、`-Wl,--gc-sections` 有什么影响，由 `tools/checks/libstdcxx-newlib-arm-none-eabi.sh` 的文件系统检查
-实测后记入 6.3 节。
+需要哪些函数（实测，6.3 节）：所有操作都在同一个 `fs_ops.o` 里。
+
+| 程序用到的操作 | 带 `-Wl,--gc-sections`（CubeMX 默认） | 不带 |
+|---|---|---|
+| `create_directory` | `mkdir` | `chdir fchmod fchmodat getcwd mkdir pathconf readlink symlink truncate`（整个 `fs_ops.o`） |
+| `current_path` | `getcwd`、`pathconf` | 同上 |
+| `exists`（只用 `stat`，libnosys 有） | 无，直接链接 | 同上 |
+
+也就是说，带 `--gc-sections` 时，只需要实现实际用到的那几个；链接器报出的未定义符号就是要实现的清单。`truncate` 由 rdimon 提供。
 
 **与 Arm 保持一致的地方：`std::random_device` 不使用 `getentropy` / `arc4random`。** 原因不在于对齐 Arm：每个用到
 `std::runtime_error` 的程序都会经由字符串实例化引入 `random_device`，而 `_getentropy` 除了 libnosys 的桩以外没有人提供，
@@ -354,6 +361,12 @@ sha256 不能用于 xim 配方。
 - 以 `_getentropy` 桩预先验证了其余检查（在第一次构建的产物上）：全部通过，包括 qemu 上的 4 次 C++ 运行（静态构造、容器、虚调用；
   完整版在 M3 与 hard-float M4 上抛出并捕获异常）。
 
+- 文件系统（2026-11-27）：检查中的程序自带内存版的 `mkdir`、`getcwd`、`pathconf`，带 `--gc-sections` 链接，在 an386 上
+  `create_directory` 成功、`current_path` 返回项目给出的 `/flash`。第一次只提供了 `mkdir`、`getcwd`，链接报缺 `pathconf`——
+  `current_path` 先用 `pathconf(".", _PC_PATH_MAX)` 确定缓冲区大小。各操作需要的符号见 3.9 节的表。
+- CI（run 45940907309）中 nano 那一遍失败：`_udivdi3.dep:111: *** missing separator`。换入 nano 的 `newlib.h` 让它变新，
+  `all-target-libstdc++-v3` 先经过 libgcc，libgcc 的依赖文件记录了这个头文件，于是 29 个 multilib 的 libgcc 在 4 核上并行重建，
+  其中一个 `.dep` 被写坏（本地 16 核没有撞上）。修复：换入后用 `touch -r` 保留原来的时间，并断言这一遍没有重建 libgcc。
 - 修复后重建约 42 分钟，检查全部通过。payload 105 MB（解压 432 MiB，与 2.4 节的估算相符），没有构建路径。
 - xim 配方（本地 sha256）安装通过；以用户的方式（shim + `--sysroot=<安装目录>/arm-none-eabi`）构建一个用到异常、`std::map`
   静态构造的程序，在 an386 上运行正确；CubeMX 式 `--specs=nano.specs --specs=nosys.specs -fno-exceptions -fno-rtti` 编译通过。

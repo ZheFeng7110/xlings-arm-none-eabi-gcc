@@ -28,7 +28,8 @@
 -- libstdc++ is built without them: there every such operation returns "Function
 -- not implemented". The other side of it: an operation used without its function
 -- is a link error here, not a run-time one (a stub that sets errno = ENOSYS and
--- returns -1 gives Arm's behaviour). std::random_device uses no entropy syscall,
+-- returns -1 gives Arm's behaviour). With -Wl,--gc-sections (CubeMX) only what is
+-- used is needed: create_directory needs mkdir, current_path getcwd and pathconf. std::random_device uses no entropy syscall,
 -- as in Arm's (std::runtime_error reaches it; nothing defines _getentropy).
 --
 -- ⚠️ ONE GCC VERSION: libstdc++ is part of GCC; this version is the compiler's.
