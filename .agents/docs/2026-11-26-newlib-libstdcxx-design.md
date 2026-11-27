@@ -376,10 +376,24 @@ sha256 不能用于 xim 配方。
 它们只在使用 `std::filesystem`（或 iconv 编码转换）时才会被引用。保持 GCC 14 的检测结果：这是有意的增强，不是遗漏
 （3.9 节，2026-11-27 决定）。
 
-### 6.4 尚未完成
+### 6.4 CI（2026-11-27）
 
-- 未推送；CI 尚未运行。容器模式、aarch64 / Windows / macOS 的 r1 编译器，以及 CI 中 data 包的耗时，都由 CI 首次验证。
-  Windows 的 `check` job 会验证 C++ 头文件随 sysroot 重定位（5 节第 2 项）。
+- run 45940907309（b9b5292，`release=false`）：四个平台的 r1 编译器与 newlib 通过；libstdcxx 在 nano 那一遍失败（6.3 节，libgcc 被重建）。
+  Windows 的 `check` job 因此被跳过。
+- run 45953941885（8294ec6，`release=false`）：**全部通过**，包括 Windows `check` job（C++ 头文件随 sysroot 重定位、
+  limits.h 在真实 Windows 上，5 节第 2 项）与容器中用 xlings 安装的 qemu（5 节第 6 项）。耗时（CI 4 核）：
+
+  | job | 分钟 |
+  |---|---:|
+  | arm-none-eabi-gcc r1 linux x86_64 / aarch64 | 30 / 19 |
+  | arm-none-eabi-gcc r1 windows x86_64 / macosx aarch64 | 47 / 48 |
+  | newlib-arm-none-eabi（含编译器） | 38 |
+  | libstdcxx-newlib-arm-none-eabi（含编译器、newlib） | 147 |
+
+  libstdcxx 在 330 分钟限制内有充足余量。
+
+### 6.5 尚未完成
+
 - xim 配方：newlib / libstdcxx 的 sha256 为 `PENDING` 占位；编译器的 r1 条目（`revision = 1, floor = 1`、显式 url）在 CI 发布后
   再写入 `xim/pkgs/a/arm-none-eabi-gcc.lua`（形式已在 6.1 中用本地 payload 验证）。
 - 发布顺序：`release=false` 全量构建一遍 → 核对 → `release=true` → 填写三个配方的 sha256 → 全新 home 从 Release 安装验证。
