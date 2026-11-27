@@ -32,10 +32,8 @@
 -- and there is no `ci` block -- a version bump is a factory rebuild.
 local versions = {
     ["latest"] = { ref = "4.5.0.20241231" },
-    -- PENDING PUBLICATION: the sha256 of the payload build.yml makes (its .sha256
-    -- sidecar), filled in once the release newlib-arm-none-eabi-4.5.0.20241231 of
-    -- this repository has it. A local build's bytes are not the factory's.
-    ["4.5.0.20241231"] = { sha256 = "PENDING-build.yml-newlib-arm-none-eabi-4.5.0.20241231" },
+    -- The release newlib-arm-none-eabi-4.5.0.20241231 (build run 45975474963 of 3fa7932).
+    ["4.5.0.20241231"] = { sha256 = "dc5fb47392f89fdd5afa6d734c352cbe1a1d7628ce745e3208d7718e2ec3bc19" },
 }
 
 package = {

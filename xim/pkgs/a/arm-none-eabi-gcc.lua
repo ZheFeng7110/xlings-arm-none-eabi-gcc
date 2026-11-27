@@ -8,16 +8,21 @@
 -- ⭐ THE C LIBRARY IS A PACKAGE OF ITS OWN, AND SO IS libstdc++.
 --
 --   newlib-arm-none-eabi              newlib + newlib-nano, Arm GNU Toolchain's names
+--   libstdcxx-newlib-arm-none-eabi    that newlib with libstdc++ (full and nano) built
+--                                     by THIS gcc, in one sysroot: its version is this
+--                                     package's version (14.2.0)
 --   picolibc-arm-none-eabi            (planned)
---   libstdcxx-<libc>-arm-none-eabi    (planned) libstdc++ built against that libc's
---                                     headers by THIS gcc, so its version is this
---                                     package's version: libstdcxx-newlib-arm-none-eabi@14.2.0
 --
 -- A C library is a sysroot this compiler selects with `--sysroot=<it>/arm-none-eabi`;
 -- its specs files then do the rest (`--specs=nano.specs --specs=nosys.specs`, as
 -- STM32CubeMX generates). The compiler's own sysroot, `<prefix>/arm-none-eabi`, is
 -- relocatable and holds no C library, so without one only freestanding code links
 -- (`-nostdlib ... -lgcc`).
+--
+-- ⭐ REVISION 1 (floor 1) is what a C/C++ library package needs: the C++ headers are
+-- looked for in the sysroot (--with-gxx-include-dir under it), and limits.h reaches
+-- the C library's (PATH_MAX, MB_LEN_MAX 8 with newlib). Revision 0 had neither; its
+-- target code (libgcc) is the same bytes as revision 1's.
 --
 -- ⚠️ libgcc is built with inhibit_libc (there is no C library at build time), so
 -- there is no libgcov: `--coverage` does not link.
@@ -77,16 +82,25 @@ package = {
                 build = { "xim:patchelf@0.18.0" },
             },
             ["latest"] = { ref = "14.2.0" },
-            -- The release arm-none-eabi-gcc-14.2.0 (build runs 44453953062 and
-            -- 44456719656 of c0b8058 made the same bytes).
+            -- 1: 14.2.0-r1, release arm-none-eabi-gcc-14.2.0-r1 (build run 45975474963
+            -- of 3fa7932): --with-gxx-include-dir under the sysroot, limits.h that
+            -- reaches the C library's. Revision 0 (the release arm-none-eabi-gcc-14.2.0,
+            -- runs 44453953062 and 44456719656 of c0b8058) stays published; floor 1:
+            -- with a C library it is wrong. An explicit url: `source` names revision 0's.
             ["14.2.0"] = {
-                sha256 = {
-                    x86_64 = "b60eea24d60c1aaadc1386164ec6c5312a370c3012c8342bb2b23351dd53aaca",
-                    aarch64 = "9cd587d85b468267cf13487205f6a9ac3ce09db0e9bca1d8abc71aa66cc039f1",
+                revision = 1,
+                floor = 1,
+                x86_64 = {
+                    url = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/arm-none-eabi-gcc-14.2.0-r1/arm-none-eabi-gcc-14.2.0-r1-linux-x86_64.tar.gz",
+                    sha256 = "b50f2f9b7662492addc76b15539a6e79090b88fc839f4a777e7196e64fe42cc1",
+                },
+                aarch64 = {
+                    url = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/arm-none-eabi-gcc-14.2.0-r1/arm-none-eabi-gcc-14.2.0-r1-linux-aarch64.tar.gz",
+                    sha256 = "4ba0531c3c9140c1679107a60bafb4467b1f3940460a9b9130d892b1bcbe47b7",
                 },
             },
         },
-        -- Added to the same release by build run 45107607496 of b01941d.
+        -- Revision 0: build run 45107607496 of b01941d; revision 1: as on Linux.
         -- ⚠️ Known limitation: the Windows payload does not rebuild to the same bytes
         -- yet (cc1/cc1plus's embedded checksum and an import library's timestamp;
         -- not the code they generate). This hash pins the published one; a fixed
@@ -95,8 +109,11 @@ package = {
             source = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/${name}-${version}/${name}-${version}-windows-${arch}.zip",
             ["latest"] = { ref = "14.2.0" },
             ["14.2.0"] = {
-                sha256 = {
-                    x86_64 = "90d1220740b75a91556e2bdbe2df9e3e42af5908fe5c249f8a66359936ab2cc8",
+                revision = 1,
+                floor = 1,
+                x86_64 = {
+                    url = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/arm-none-eabi-gcc-14.2.0-r1/arm-none-eabi-gcc-14.2.0-r1-windows-x86_64.zip",
+                    sha256 = "0e46c7b914d43ad4e9466f930f7fc3b67ca298402234a71eb2cab0428381b830",
                 },
             },
         },
@@ -104,8 +121,11 @@ package = {
             source = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/${name}-${version}/${name}-${version}-macosx-${arch}.tar.gz",
             ["latest"] = { ref = "14.2.0" },
             ["14.2.0"] = {
-                sha256 = {
-                    aarch64 = "4d984923cc0f3967edfdfc529509c1310a9aeb27ec15fa82da803ef8b693bfb2",
+                revision = 1,
+                floor = 1,
+                aarch64 = {
+                    url = "https://github.com/ZheFeng7110/xlings-arm-none-eabi-gcc/releases/download/arm-none-eabi-gcc-14.2.0-r1/arm-none-eabi-gcc-14.2.0-r1-macosx-aarch64.tar.gz",
+                    sha256 = "5d569219739266262359ce9cf1bb3a88458796d6b91c8eb84d223b957151f8c1",
                 },
             },
         },

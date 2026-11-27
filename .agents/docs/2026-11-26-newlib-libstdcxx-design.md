@@ -392,11 +392,24 @@ sha256 不能用于 xim 配方。
 
   libstdcxx 在 330 分钟限制内有充足余量。
 
-### 6.5 尚未完成
+### 6.5 发布（2026-11-27）
 
-- xim 配方：newlib / libstdcxx 的 sha256 为 `PENDING` 占位；编译器的 r1 条目（`revision = 1, floor = 1`、显式 url）在 CI 发布后
-  再写入 `xim/pkgs/a/arm-none-eabi-gcc.lua`（形式已在 6.1 中用本地 payload 验证）。
-- 发布顺序：`release=false` 全量构建一遍 → 核对 → `release=true` → 填写三个配方的 sha256 → 全新 home 从 Release 安装验证。
+run 45975474963（3fa7932，`release=true`）全部通过并发布。各 Release 的资产（sha256 为 GitHub 记录的资产 digest，已写入 xim 配方）：
+
+| Release | 资产 | sha256 |
+|---|---|---|
+| `arm-none-eabi-gcc-14.2.0-r1` | `…-linux-x86_64.tar.gz` | `b50f2f9b…2cc1` |
+| | `…-linux-aarch64.tar.gz` | `4ba0531c…47b7` |
+| | `…-windows-x86_64.zip` | `0e46c7b9…b830` |
+| | `…-macosx-aarch64.tar.gz` | `5d569219…f8c1` |
+| `newlib-arm-none-eabi-4.5.0.20241231` | `newlib-arm-none-eabi-4.5.0.20241231.tar.gz` | `dc5fb473…bc19` |
+| `libstdcxx-newlib-arm-none-eabi-14.2.0` | `libstdcxx-newlib-arm-none-eabi-14.2.0.tar.gz` | `ead19549…aae4` |
+
+- `arm-none-eabi-gcc-14.2.0`（r0）的资产保持原样。
+- 字节与 run 45953941885 不同，原因只是 provenance 中的 commit 不同（为了让发布的 provenance 指向包含文档的 commit，由本轮决定）。
+- xim 配方：编译器各平台条目改为 `revision = 1, floor = 1`、显式 r1 url；newlib / libstdcxx 填入 sha256。
+- 在全新 home 中直接从 Release 安装三个包（不预置缓存，xlings 下载并校验 sha256），通过 shim 构建：CubeMX 式 C 链接通过；
+  在 an386 上，C 程序输出 `PATH_MAX=1024 MB_LEN_MAX=8`，C++ 程序抛出并捕获异常。Windows / macOS 上的 xim 安装尚未实测。
 
 ## 7. 不在本轮范围
 

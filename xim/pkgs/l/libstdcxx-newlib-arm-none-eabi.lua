@@ -38,10 +38,8 @@
 -- path. Target code: ONE archive (one sha256) serves every host; no `ci` block.
 local versions = {
     ["latest"] = { ref = "14.2.0" },
-    -- PENDING PUBLICATION: the sha256 of the payload build.yml makes (its .sha256
-    -- sidecar), filled in once the release libstdcxx-newlib-arm-none-eabi-14.2.0 of
-    -- this repository has it. A local build's bytes are not the factory's.
-    ["14.2.0"] = { sha256 = "PENDING-build.yml-libstdcxx-newlib-arm-none-eabi-14.2.0" },
+    -- The release libstdcxx-newlib-arm-none-eabi-14.2.0 (build run 45975474963 of 3fa7932).
+    ["14.2.0"] = { sha256 = "ead19549a73a9c6f27bbaed61db0464eccf9c99d21d3088bb00450d76688aae4" },
 }
 
 package = {
