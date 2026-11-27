@@ -259,6 +259,42 @@ libstdcxx-newlib-arm-none-eabi-14.2.0/
 - 预计耗时（CI 4 核，未实测）：newlib job ≈ 编译器 30 分钟 + newlib；libstdcxx job ≈ 编译器 + newlib + gcc 重建 + 两遍 libstdc++，
   应在 330 分钟以内。实测后记入第 6 节。
 
+### 3.9 与 Arm GNU Toolchain 的差异：不完全对齐
+
+本仓库的包**不以完全对齐 Arm GNU Toolchain 为目标**（2026-11-27 决定）。文件名、configure、multilib 与 Arm 一致，
+STM32CubeMX 生成的项目可以直接链接；但凡是 Arm 的构建关掉了、而这里的目标环境能够支持的能力，就保留。
+
+**增强：`std::filesystem` 可以真正使用。** libstdc++ 的 `fs_ops.cc` 按 `c++config.h` 中的宏决定每个操作的实现：宏为 1 时调用
+对应的 POSIX 函数（`::mkdir`、`::getcwd`、`::chdir`、`::chmod` 等）；宏未定义时，直接返回 `errc::function_not_supported`。
+
+| | Arm GNU Toolchain 15.3.rel1 | 本仓库（libstdc++ 14.2.0） |
+|---|---|---|
+| `_GLIBCXX_USE_{MKDIR,GETCWD,CHDIR,CHMOD,FCHMOD,FCHMODAT}`、`_GLIBCXX_HAVE_{READLINK,SYMLINK,UNLINKAT,OPENAT}` | 未定义 | 1 |
+| `create_directory`、`current_path` 等 | 永远返回 “Function not implemented”（实测，见下） | 调用项目提供的 `mkdir`、`getcwd` 等 |
+| `_GLIBCXX_HAVE_ICONV` | 未定义 | 1（newlib 自带 iconv） |
+
+Arm 的实测（本机，cortex-m4 hard，qemu mps2-an386，`--specs=rdimon.specs`）：
+
+```
+create_directory: 0, ec=88 (Function not implemented)
+current_path: '', ec=88 (Function not implemented)
+```
+
+使用方法：newlib 在 arm 上不实现这些函数（`libc/unix` 不参与 arm 的构建；`libc/reent` 只有 `_mkdir_r`，没有 `mkdir`），
+需要由项目提供，**用 POSIX 名字**（`mkdir`、`getcwd`、…，不是 `_mkdir`），通常是接在 FatFs、littlefs 等文件系统上的一层薄封装。
+提供之后，`std::filesystem` 的对应操作就真正在设备上的文件系统里执行。
+
+代价：项目用到某个操作却没有提供对应函数时，结果是**链接错误**，而不是 Arm 那样在运行时返回错误码。想要 Arm 的行为，
+可以提供一个返回 `-1` 并设置 `errno = ENOSYS` 的同名函数。（附带一提：Arm 的工具链用 `--specs=nosys.specs` 链接
+`std::filesystem` 本身就会失败——`resize_file` 需要的 `truncate` 只有 rdimon 提供。）
+
+一个操作具体需要哪些符号、`-Wl,--gc-sections` 有什么影响，由 `tools/checks/libstdcxx-newlib-arm-none-eabi.sh` 的文件系统检查
+实测后记入 6.3 节。
+
+**与 Arm 保持一致的地方：`std::random_device` 不使用 `getentropy` / `arc4random`。** 原因不在于对齐 Arm：每个用到
+`std::runtime_error` 的程序都会经由字符串实例化引入 `random_device`，而 `_getentropy` 除了 libnosys 的桩以外没有人提供，
+保留它会让大量普通程序链接失败，换来的能力（硬件熵源）却需要项目另外实现（6.3 节）。
+
 ## 4. 实施顺序
 
 1. 编译器配方（r1 两处修改）+ 新检查，本地构建，核对 libgcc 与 r0 是否逐字节相同。
@@ -324,8 +360,8 @@ sha256 不能用于 xim 配方。
 
 与 Arm 15.3.rel1 的 `c++config.h` 相比，还有以下宏不同（Arm 为 no，这里为 yes）：`_GLIBCXX_HAVE_ICONV`、`_GLIBCXX_HAVE_OPENAT`、
 `_GLIBCXX_HAVE_READLINK`、`_GLIBCXX_HAVE_SYMLINK`、`_GLIBCXX_HAVE_UNLINKAT`、`_GLIBCXX_USE_{CHDIR,CHMOD,FCHMOD,FCHMODAT,GETCWD,MKDIR}`。
-它们只在使用 `std::filesystem`（或 iconv 编码转换）时才会被引用，届时链接需要对应的系统调用，不会在运行时出错；保持 GCC 14 的检测结果，
-不作修改（GCC 版本不同，部分差异也可能来自 15 的检测方式）。
+它们只在使用 `std::filesystem`（或 iconv 编码转换）时才会被引用。保持 GCC 14 的检测结果：这是有意的增强，不是遗漏
+（3.9 节，2026-11-27 决定）。
 
 ### 6.4 尚未完成
 

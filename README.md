@@ -32,6 +32,10 @@ arm-none-eabi-gcc --sysroot=<newlib-arm-none-eabi>/arm-none-eabi \
 arm-none-eabi-g++ --sysroot=<libstdcxx-newlib-arm-none-eabi>/arm-none-eabi ...
 ```
 
+文件名、configure 与 Arm GNU Toolchain 一致，但不追求完全对齐：例如 `std::filesystem` 在项目提供 `mkdir`、`getcwd` 等
+POSIX 函数（如接在 FatFs、littlefs 上）时可以真正使用，Arm 的 libstdc++ 则一律返回 “Function not implemented”。
+差异详见[设计记录 3.9 节](.agents/docs/2026-11-26-newlib-libstdcxx-design.md)。
+
 已知限制：Windows payload 目前不能逐字节复现（同一 commit 两次构建有 3 个文件不同，不影响安装内容与生成的代码），
 详见设计记录 8.4 节。
 

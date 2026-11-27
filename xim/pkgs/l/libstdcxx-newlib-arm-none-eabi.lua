@@ -22,6 +22,15 @@
 -- compiler looks for its C++ headers in the sysroot (--with-gxx-include-dir under
 -- it). Revision 0 looks in its own prefix and does not find these.
 --
+-- ⭐ NOT A CLONE OF ARM'S: std::filesystem WORKS when the project provides the POSIX
+-- functions it calls (mkdir, getcwd, chdir, chmod, ... -- under those names, e.g.
+-- over FatFs or littlefs; newlib has none of them on arm). Arm GNU Toolchain's
+-- libstdc++ is built without them: there every such operation returns "Function
+-- not implemented". The other side of it: an operation used without its function
+-- is a link error here, not a run-time one (a stub that sets errno = ENOSYS and
+-- returns -1 gives Arm's behaviour). std::random_device uses no entropy syscall,
+-- as in Arm's (std::runtime_error reaches it; nothing defines _getentropy).
+--
 -- ⚠️ ONE GCC VERSION: libstdc++ is part of GCC; this version is the compiler's.
 --
 -- ⚠️ A target sysroot, not a host library: nothing enters the SubOS's include or lib
